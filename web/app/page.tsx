@@ -132,8 +132,6 @@ const THRESHOLDS = [
 const THRESHOLD_MAP: Record<number, typeof THRESHOLDS[0]> = {};
 for (const t of THRESHOLDS) THRESHOLD_MAP[t.value] = t;
 
-interface FeatureCounts { [key: number]: number }
-
 // A hail location = a cluster of nearby polygons grouped together
 interface HailLocation {
   id: number;
@@ -228,7 +226,6 @@ export default function Home() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [featureCounts, setFeatureCounts] = useState<FeatureCounts>({});
   const [roadsVisible, setRoadsVisible] = useState(false);
   const [opacity, setOpacity] = useState(0.5);
   const [hiddenThresholds, setHiddenThresholds] = useState<Set<number>>(new Set());
@@ -399,8 +396,6 @@ export default function Home() {
   }
 
   function addLayers(mapInstance: maplibregl.Map, geojson: any) {
-    const counts: FeatureCounts = {};
-
     for (const threshold of THRESHOLDS) {
       const layerId = `swath-${threshold.value}`;
 
@@ -411,7 +406,6 @@ export default function Home() {
         ),
       };
 
-      counts[threshold.value] = filtered.features.length;
       if (filtered.features.length === 0) continue;
 
       mapInstance.addSource(layerId, {
@@ -455,8 +449,6 @@ export default function Home() {
         mapInstance.getCanvas().style.cursor = "";
       });
     }
-
-    setFeatureCounts(counts);
 
     // Build location clusters from all features
     const locations = clusterFeatures(geojson.features);
@@ -640,35 +632,41 @@ export default function Home() {
                 {[...THRESHOLDS].reverse().map((t) => {
                   const isHidden = hiddenThresholds.has(t.value);
                   return (
-                    <div
+                    <label
                       key={t.value}
-                      onClick={() => toggleThreshold(t.value)}
                       style={{
                         padding: "10px 16px",
                         cursor: "pointer",
-                        opacity: isHidden ? 0.4 : 1,
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "space-between",
+                        gap: 10,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div
-                          style={{
-                            width: 14,
-                            height: 14,
-                            borderRadius: "50%",
-                            background: isHidden ? "#ccc" : t.color,
-                          }}
-                        />
-                        <span style={{ fontSize: 13, fontWeight: 600, color: "#222" }}>
-                          &ge; {t.label}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: 12, color: "#999" }}>
-                        {featureCounts[t.value] ?? 0}
+                      <input
+                        type="checkbox"
+                        checked={!isHidden}
+                        onChange={() => toggleThreshold(t.value)}
+                        style={{
+                          width: 16,
+                          height: 16,
+                          accentColor: t.color,
+                          cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          background: isHidden ? "#ccc" : t.color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: isHidden ? "#999" : "#222" }}>
+                        &ge; {t.label}
                       </span>
-                    </div>
+                    </label>
                   );
                 })}
               </div>
