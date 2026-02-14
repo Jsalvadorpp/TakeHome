@@ -12,7 +12,7 @@ When you open it, it:
 1. Shows a satellite map of the US
 2. Calls the API to get hail polygon data for the test event (May 22, 2024)
 3. Draws the polygons on the map, colored by hail size
-4. Shows a sidebar with controls
+4. Shows a sidebar with two tabs: Locations and Controls
 
 ---
 
@@ -64,26 +64,49 @@ Roads are hidden by default. There's a "Show Roads" button in the top-left corne
 
 ## Sidebar
 
-The sidebar on the left shows:
+The sidebar on the left has two tabs: **Locations** and **Controls**.
 
 ### Header
-Project name and subtitle.
 
-### Weather History
-Event info and detection count.
+Project name and the date of the hail event.
 
-### Threshold Toggles
-One row per hail size threshold. Click a row to show/hide that threshold on the map. Each row shows:
+### Locations Tab
+
+A scrollable list of hail locations. Each location is a cluster of nearby hail polygons grouped together.
+
+**What each row shows:**
+- A colored dot matching the severity (higher threshold = darker red)
+- The location name (city, state) — resolved using OpenStreetMap's Nominatim reverse geocoding service
+- The hail size thresholds detected at that location (e.g., `2", 1.5", 1", 0.75"`)
+- The maximum threshold as a badge on the right
+
+**How it works:**
+- The list updates automatically as you pan and zoom the map — it only shows locations visible in the current viewport
+- Click any row to fly to that location on the map
+- Hover over a row to highlight it
+- The count at the top shows how many locations are in view vs. total (e.g., "12 of 71 locations in view")
+
+**Location names** are loaded in the background using the Nominatim API (free, no API key). While names are loading, coordinates are shown as a fallback (e.g., `33.05°N, 96.19°W`).
+
+**Clustering:** Nearby polygons (within ~0.5 degrees / ~50km) are grouped into a single location. This prevents the list from being overwhelmed with hundreds of individual polygons. Locations are sorted by severity — the most severe hail locations appear first.
+
+### Controls Tab
+
+#### Threshold Checkboxes
+
+One row per hail size threshold with a checkbox to toggle visibility on the map. Each row shows:
+- A checkbox (checked = visible on map, unchecked = hidden)
 - A colored dot matching the polygon color
-- The threshold value (e.g., ">= 1.00")
-- The number of polygons for that threshold
+- The threshold value (e.g., ">= 1.00"")
 
-Hidden thresholds appear faded/grayed out.
+Unchecking a threshold hides all polygons of that size from the map.
 
-### Opacity Slider
+#### Opacity Slider
+
 A range slider (0%–100%) that controls how transparent the polygons are. Drag left to see more satellite imagery through the polygons. Drag right for more solid colors. Defaults to 50%.
 
 ### Footer
+
 A reminder that this data is from NOAA MRMS and represents radar estimates, not confirmed damage.
 
 ---
@@ -126,24 +149,6 @@ The response is a GeoJSON FeatureCollection. The viewer splits it by threshold v
 
 ---
 
-## Known Improvements Needed
-
-### Reverse Geocoding for Location Names
-
-**Current approach (slow, fragile):** The sidebar's "Locations" tab shows hail cluster locations by name (e.g., "Dallas, Texas"). To get these names, the viewer calls the Nominatim reverse geocoding API one-at-a-time with a mandatory 1-second delay between requests (Nominatim's rate limit). For 20+ locations, this means the names trickle in over 20+ seconds. If Nominatim is down or rate-limits us, locations fall back to raw coordinates.
-
-See `page.tsx` lines ~326-361 — the `useEffect` that calls `nominatim.openstreetmap.org/reverse` in a serial loop.
-
-**Possible solutions — replace with a local offline city lookup:**
-
-- **SimpleMaps** — Free CSV of US cities (and Canada cities) with name, state, lat, lng, population. `https://simplemaps.com/data/us-cities` and `https://simplemaps.com/data/canada-cities`
-- **GeoNames** — Fully open (CC-BY). Download from `https://download.geonames.org/export/dump/` (`US.zip`, `CA.zip`)
-- **npm packages** — `all-the-cities`, `cities.json`, or similar pre-packaged datasets
-
-Filter to population > 5,000, bundle as a small JSON file, and do nearest-city lookup client-side. Instant, no network dependency.
-
----
-
 ## Tech Stack
 
 | Tool | What it does |
@@ -153,3 +158,4 @@ Filter to population > 5,000, bundle as a small JSON file, and do nearest-city l
 | **MapLibre GL JS** | Renders the interactive map (open-source, no API key) |
 | **ESRI World Imagery** | Satellite basemap tiles |
 | **OpenFreeMap** | Vector tiles for city/road labels |
+| **Nominatim** | Reverse geocoding for location names (free, no API key) |

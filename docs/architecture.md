@@ -135,10 +135,15 @@ TakeHome/
 1. Creates a MapLibre GL JS map with satellite imagery
 2. Calls the API to get hail polygon data
 3. Draws the polygons on the map, colored by threshold
-4. Shows a sidebar with threshold toggles and an opacity slider
-5. Lets users click polygons to see details
+4. Clusters nearby polygons into locations and reverse-geocodes them to city/state names
+5. Shows a sidebar with two tabs:
+   - **Locations** — scrollable list of hail locations (click to fly to that spot on the map)
+   - **Controls** — threshold checkboxes to show/hide layers, opacity slider
+6. Lets users click polygons to see details in a popup
 
-**Talks to:** `api/main.py` via `fetch("http://localhost:8000/swaths?...")`
+**Talks to:**
+- `api/main.py` via `fetch("http://localhost:8000/swaths?...")`
+- OpenStreetMap Nominatim API for reverse geocoding location names
 
 ---
 

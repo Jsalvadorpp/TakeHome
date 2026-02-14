@@ -185,6 +185,12 @@ Look for dates in May or June — these tend to have severe hail events in the G
 
 ---
 
+## Documentation
+
+For a detailed explanation of how the project works, see the [docs/README.md](docs/README.md).
+
+---
+
 ## Limitations
 
 - **Exposure, not damage.** These polygons show where radar estimated hail above a certain size. They do not represent confirmed property damage or insurance losses.
