@@ -9,9 +9,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const DEFAULT_START = "2024-05-22T20:00:00Z";
 const DEFAULT_END = "2024-05-22T22:00:00Z";
 
-// Satellite + road labels basemap (free, no API key)
+// Satellite basemap + vector roads/labels for readability (all free, no API keys)
 const SATELLITE_STYLE: maplibregl.StyleSpecification = {
   version: 8,
+  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
   sources: {
     satellite: {
       type: "raster",
@@ -20,27 +21,113 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
       ],
       tileSize: 256,
       attribution:
-        "&copy; Esri, Maxar, Earthstar Geographics, USDA, USGS, AeroGRID, IGN",
+        "&copy; Esri, Maxar, Earthstar Geographics &middot; &copy; OpenMapTiles &copy; OpenStreetMap",
     },
-    roads: {
-      type: "raster",
-      tiles: [
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
-      ],
-      tileSize: 256,
-    },
-    labels: {
-      type: "raster",
-      tiles: [
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-      ],
-      tileSize: 256,
+    openmaptiles: {
+      type: "vector",
+      url: "https://tiles.openfreemap.org/planet",
     },
   },
   layers: [
+    // Satellite imagery base
     { id: "satellite", type: "raster", source: "satellite" },
-    { id: "roads", type: "raster", source: "roads" },
-    { id: "labels", type: "raster", source: "labels" },
+
+    // --- Vector road/label layers render on top of swaths ---
+
+    // Major highway casings (dark outline behind road fill)
+    {
+      id: "highway-casing",
+      type: "line",
+      source: "openmaptiles",
+      "source-layer": "transportation",
+      filter: ["in", "class", "motorway", "trunk"],
+      paint: {
+        "line-color": "rgba(0,0,0,0.4)",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1.5, 10, 4, 14, 8],
+      },
+      layout: { "line-cap": "round", "line-join": "round", "visibility": "none" },
+    },
+    // Major highway fills (white/light)
+    {
+      id: "highway-fill",
+      type: "line",
+      source: "openmaptiles",
+      "source-layer": "transportation",
+      filter: ["in", "class", "motorway", "trunk"],
+      paint: {
+        "line-color": "rgba(255,255,255,0.8)",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.8, 10, 2.5, 14, 5],
+      },
+      layout: { "line-cap": "round", "line-join": "round", "visibility": "none" },
+    },
+    // Highway route numbers
+    {
+      id: "highway-label",
+      type: "symbol",
+      source: "openmaptiles",
+      "source-layer": "transportation_name",
+      filter: ["in", "class", "motorway", "trunk"],
+      layout: {
+        "symbol-placement": "line",
+        "text-field": "{ref}",
+        "text-font": ["Open Sans Bold"],
+        "text-size": 11,
+        "text-rotation-alignment": "map",
+        "symbol-spacing": 400,
+        "visibility": "none",
+      },
+      paint: {
+        "text-color": "#333",
+        "text-halo-color": "rgba(255,255,255,0.95)",
+        "text-halo-width": 2,
+      },
+    },
+    // City / town / village labels
+    {
+      id: "place-label",
+      type: "symbol",
+      source: "openmaptiles",
+      "source-layer": "place",
+      filter: ["in", "class", "city", "town", "village", "suburb"],
+      layout: {
+        "text-field": "{name}",
+        "text-font": ["Open Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"],
+          5, ["match", ["get", "class"], "city", 14, 10],
+          10, ["match", ["get", "class"], "city", 18, "town", 14, 12],
+          14, ["match", ["get", "class"], "city", 22, "town", 16, 14],
+        ],
+        "text-anchor": "center",
+        "text-max-width": 8,
+      },
+      paint: {
+        "text-color": "#ffffff",
+        "text-halo-color": "rgba(0,0,0,0.7)",
+        "text-halo-width": 2,
+      },
+    },
+    // State / county boundaries
+    {
+      id: "boundary-label",
+      type: "symbol",
+      source: "openmaptiles",
+      "source-layer": "place",
+      filter: ["==", "class", "state"],
+      minzoom: 4,
+      maxzoom: 8,
+      layout: {
+        "text-field": "{name}",
+        "text-font": ["Open Sans Bold"],
+        "text-size": 12,
+        "text-transform": "uppercase",
+        "text-letter-spacing": 0.15,
+      },
+      paint: {
+        "text-color": "rgba(255,255,255,0.8)",
+        "text-halo-color": "rgba(0,0,0,0.6)",
+        "text-halo-width": 1.5,
+      },
+    },
   ],
 };
 
@@ -64,6 +151,56 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [featureCounts, setFeatureCounts] = useState<FeatureCounts>({});
   const [totalFeatures, setTotalFeatures] = useState(0);
+  const [roadsVisible, setRoadsVisible] = useState(false);
+  const [opacity, setOpacity] = useState(0.5);
+  const [hiddenThresholds, setHiddenThresholds] = useState<Set<number>>(new Set());
+
+  const ROAD_LAYER_IDS = ["highway-casing", "highway-fill", "highway-label"];
+
+  function toggleRoads() {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const newVisible = !roadsVisible;
+    const visibility = newVisible ? "visible" : "none";
+    for (const id of ROAD_LAYER_IDS) {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, "visibility", visibility);
+      }
+    }
+    setRoadsVisible(newVisible);
+  }
+
+  function toggleThreshold(value: number) {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const layerId = `swath-${value}-fill`;
+    if (!map.getLayer(layerId)) return;
+
+    const newHidden = new Set(hiddenThresholds);
+    if (newHidden.has(value)) {
+      newHidden.delete(value);
+      map.setLayoutProperty(layerId, "visibility", "visible");
+    } else {
+      newHidden.add(value);
+      map.setLayoutProperty(layerId, "visibility", "none");
+    }
+    setHiddenThresholds(newHidden);
+  }
+
+  function handleOpacityChange(newOpacity: number) {
+    setOpacity(newOpacity);
+    const map = mapRef.current;
+    if (!map) return;
+
+    for (const t of THRESHOLDS) {
+      const layerId = `swath-${t.value}-fill`;
+      if (map.getLayer(layerId)) {
+        map.setPaintProperty(layerId, "fill-opacity", newOpacity);
+      }
+    }
+  }
 
   useEffect(() => {
     if (!mapContainer.current) return;
@@ -133,6 +270,7 @@ export default function Home() {
       });
 
       // Fill only — no outline strokes for a smooth, blended look
+      // Insert below vector roads so labels stay readable
       mapInstance.addLayer(
         {
           id: `${layerId}-fill`,
@@ -140,10 +278,10 @@ export default function Home() {
           source: layerId,
           paint: {
             "fill-color": threshold.color,
-            "fill-opacity": threshold.opacity,
+            "fill-opacity": opacity,
           },
         },
-        "roads" // Insert swath layers below roads/labels
+        "highway-casing"
       );
 
       // Popup on click
@@ -213,19 +351,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div
-          style={{
-            padding: "12px 16px",
-            display: "flex",
-            gap: 8,
-            borderBottom: "1px solid #eee",
-          }}
-        >
-          <button style={greenButtonStyle}>Weather</button>
-          <button style={greenButtonStyle}>Event Details</button>
-        </div>
-
         {/* Weather History label */}
         <div
           style={{
@@ -257,7 +382,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Event cards — one per threshold */}
+        {/* Threshold toggles */}
         <div style={{ flex: 1, overflow: "auto" }}>
           {error && (
             <div
@@ -276,61 +401,71 @@ export default function Home() {
 
           {!loading &&
             !error &&
-            [...THRESHOLDS].reverse().map((t) => (
-              <div key={t.value} style={eventCardStyle}>
+            [...THRESHOLDS].reverse().map((t) => {
+              const isHidden = hiddenThresholds.has(t.value);
+              return (
                 <div
+                  key={t.value}
+                  onClick={() => toggleThreshold(t.value)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#222" }}>
-                    May 22, 2024
-                  </div>
-                </div>
-
-                {/* Hail size badges */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    marginTop: 8,
+                    ...eventCardStyle,
+                    cursor: "pointer",
+                    opacity: isHidden ? 0.4 : 1,
                   }}
                 >
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 5,
-                      fontSize: 12,
-                      color: "#555",
+                      justifyContent: "space-between",
                     }}
                   >
-                    <div
-                      style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: "50%",
-                        background: t.color,
-                        opacity: 0.9,
-                      }}
-                    />
-                    &ge; {t.label}
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "#999",
-                      marginLeft: "auto",
-                    }}
-                  >
-                    {featureCounts[t.value] ?? 0} polygons
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          background: isHidden ? "#ccc" : t.color,
+                        }}
+                      />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#222" }}>
+                        &ge; {t.label}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 12, color: "#999" }}>
+                      {featureCounts[t.value] ?? 0}
+                    </span>
                   </div>
                 </div>
+              );
+            })}
+
+          {/* Opacity slider */}
+          {!loading && !error && (
+            <div style={{ padding: "16px 16px 12px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 12,
+                  color: "#666",
+                  marginBottom: 6,
+                }}
+              >
+                <span>Opacity</span>
+                <span>{Math.round(opacity * 100)}%</span>
               </div>
-            ))}
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round(opacity * 100)}
+                onChange={(e) => handleOpacityChange(Number(e.target.value) / 100)}
+                style={{ width: "100%", cursor: "pointer" }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -349,6 +484,27 @@ export default function Home() {
       {/* Map */}
       <div style={{ flex: 1, position: "relative" }}>
         <div ref={mapContainer} style={{ width: "100%", height: "100%" }} />
+
+        {/* Roads toggle button */}
+        <button
+          onClick={toggleRoads}
+          style={{
+            position: "absolute",
+            top: 12,
+            left: 12,
+            background: roadsVisible ? "#43A047" : "rgba(255,255,255,0.9)",
+            color: roadsVisible ? "#fff" : "#333",
+            border: "none",
+            borderRadius: 6,
+            padding: "8px 14px",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+          }}
+        >
+          {roadsVisible ? "Hide Roads" : "Show Roads"}
+        </button>
 
         {/* Loading overlay on map */}
         {loading && (
@@ -373,17 +529,6 @@ export default function Home() {
     </div>
   );
 }
-
-const greenButtonStyle: React.CSSProperties = {
-  background: "#43A047",
-  color: "#fff",
-  border: "none",
-  borderRadius: 4,
-  padding: "6px 14px",
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: "pointer",
-};
 
 const eventCardStyle: React.CSSProperties = {
   margin: "0 12px",
