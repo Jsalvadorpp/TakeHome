@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -29,12 +29,7 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
     },
   },
   layers: [
-    // Satellite imagery base
     { id: "satellite", type: "raster", source: "satellite" },
-
-    // --- Vector road/label layers render on top of swaths ---
-
-    // Major highway casings (dark outline behind road fill)
     {
       id: "highway-casing",
       type: "line",
@@ -47,7 +42,6 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
       },
       layout: { "line-cap": "round", "line-join": "round", "visibility": "none" },
     },
-    // Major highway fills (white/light)
     {
       id: "highway-fill",
       type: "line",
@@ -60,7 +54,6 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
       },
       layout: { "line-cap": "round", "line-join": "round", "visibility": "none" },
     },
-    // Highway route numbers
     {
       id: "highway-label",
       type: "symbol",
@@ -82,7 +75,6 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
         "text-halo-width": 2,
       },
     },
-    // City / town / village labels
     {
       id: "place-label",
       type: "symbol",
@@ -106,7 +98,6 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
         "text-halo-width": 2,
       },
     },
-    // State / county boundaries
     {
       id: "boundary-label",
       type: "symbol",
@@ -131,8 +122,6 @@ const SATELLITE_STYLE: maplibregl.StyleSpecification = {
   ],
 };
 
-// Threshold colors — earthy warm gradient (yellow-green → orange → dark red-brown)
-// Matches typical hail swath map styling. Largest first so smaller render on top.
 const THRESHOLDS = [
   { value: 2.0, color: "#BF360C", label: '2.00"', opacity: 0.7 },
   { value: 1.5, color: "#E65100", label: '1.50"', opacity: 0.6 },
@@ -140,8 +129,98 @@ const THRESHOLDS = [
   { value: 0.75, color: "#9E9D24", label: '0.75"', opacity: 0.4 },
 ];
 
-interface FeatureCounts {
-  [key: number]: number;
+const THRESHOLD_MAP: Record<number, typeof THRESHOLDS[0]> = {};
+for (const t of THRESHOLDS) THRESHOLD_MAP[t.value] = t;
+
+interface FeatureCounts { [key: number]: number }
+
+// A hail location = a cluster of nearby polygons grouped together
+interface HailLocation {
+  id: number;
+  lat: number;
+  lng: number;
+  maxThreshold: number;
+  thresholds: number[];
+  bounds: maplibregl.LngLatBounds;
+}
+
+// Compute centroid of a GeoJSON geometry by averaging all coordinates
+function getCentroid(geometry: any): [number, number] {
+  let sumLng = 0;
+  let sumLat = 0;
+  let count = 0;
+
+  function walk(coords: any) {
+    if (typeof coords[0] === "number") {
+      sumLng += coords[0];
+      sumLat += coords[1];
+      count++;
+    } else {
+      for (const c of coords) walk(c);
+    }
+  }
+
+  walk(geometry.coordinates);
+  return count > 0 ? [sumLng / count, sumLat / count] : [0, 0];
+}
+
+// Compute bounds of a GeoJSON geometry
+function getGeometryBounds(geometry: any): maplibregl.LngLatBounds {
+  const bounds = new maplibregl.LngLatBounds();
+  addCoordsToBounds(geometry.coordinates, bounds);
+  return bounds;
+}
+
+// Group features into locations by clustering nearby centroids
+function clusterFeatures(features: any[]): HailLocation[] {
+  // Sort by threshold descending so highest severity comes first
+  const sorted = [...features].sort(
+    (a, b) => b.properties.threshold - a.properties.threshold
+  );
+
+  const locations: HailLocation[] = [];
+  const assigned = new Set<number>();
+
+  // Simple distance-based clustering: ~0.5 degrees (~50km)
+  const CLUSTER_DISTANCE = 0.5;
+
+  for (let i = 0; i < sorted.length; i++) {
+    if (assigned.has(i)) continue;
+
+    const centroid = getCentroid(sorted[i].geometry);
+    const bounds = getGeometryBounds(sorted[i].geometry);
+    const thresholds = new Set<number>([sorted[i].properties.threshold]);
+
+    // Find nearby features and merge into this cluster
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (assigned.has(j)) continue;
+      const other = getCentroid(sorted[j].geometry);
+      const dist = Math.sqrt(
+        (centroid[0] - other[0]) ** 2 + (centroid[1] - other[1]) ** 2
+      );
+      if (dist < CLUSTER_DISTANCE) {
+        assigned.add(j);
+        thresholds.add(sorted[j].properties.threshold);
+        const otherBounds = getGeometryBounds(sorted[j].geometry);
+        bounds.extend(otherBounds.getSouthWest());
+        bounds.extend(otherBounds.getNorthEast());
+      }
+    }
+
+    assigned.add(i);
+    locations.push({
+      id: locations.length,
+      lng: centroid[0],
+      lat: centroid[1],
+      maxThreshold: sorted[i].properties.threshold,
+      thresholds: Array.from(thresholds).sort((a, b) => b - a),
+      bounds,
+    });
+  }
+
+  // Sort by max threshold descending
+  locations.sort((a, b) => b.maxThreshold - a.maxThreshold);
+  return locations;
 }
 
 export default function Home() {
@@ -150,17 +229,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [featureCounts, setFeatureCounts] = useState<FeatureCounts>({});
-  const [totalFeatures, setTotalFeatures] = useState(0);
   const [roadsVisible, setRoadsVisible] = useState(false);
   const [opacity, setOpacity] = useState(0.5);
   const [hiddenThresholds, setHiddenThresholds] = useState<Set<number>>(new Set());
+  const [allLocations, setAllLocations] = useState<HailLocation[]>([]);
+  const [visibleLocations, setVisibleLocations] = useState<HailLocation[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<"controls" | "locations">("locations");
+  const [locationNames, setLocationNames] = useState<Record<number, string>>({});
 
   const ROAD_LAYER_IDS = ["highway-casing", "highway-fill", "highway-label"];
 
   function toggleRoads() {
     const map = mapRef.current;
     if (!map) return;
-
     const newVisible = !roadsVisible;
     const visibility = newVisible ? "visible" : "none";
     for (const id of ROAD_LAYER_IDS) {
@@ -174,10 +255,8 @@ export default function Home() {
   function toggleThreshold(value: number) {
     const map = mapRef.current;
     if (!map) return;
-
     const layerId = `swath-${value}-fill`;
     if (!map.getLayer(layerId)) return;
-
     const newHidden = new Set(hiddenThresholds);
     if (newHidden.has(value)) {
       newHidden.delete(value);
@@ -193,7 +272,6 @@ export default function Home() {
     setOpacity(newOpacity);
     const map = mapRef.current;
     if (!map) return;
-
     for (const t of THRESHOLDS) {
       const layerId = `swath-${t.value}-fill`;
       if (map.getLayer(layerId)) {
@@ -201,6 +279,27 @@ export default function Home() {
       }
     }
   }
+
+  function flyToLocation(location: HailLocation) {
+    const map = mapRef.current;
+    if (!map) return;
+    map.fitBounds(location.bounds, {
+      padding: { top: 60, bottom: 60, left: 340, right: 60 },
+      maxZoom: 11,
+    });
+  }
+
+  // Update visible locations when the map moves
+  const updateVisibleLocations = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || allLocations.length === 0) return;
+
+    const bounds = map.getBounds();
+    const visible = allLocations.filter((loc) =>
+      bounds.contains(new maplibregl.LngLat(loc.lng, loc.lat))
+    );
+    setVisibleLocations(visible);
+  }, [allLocations]);
 
   useEffect(() => {
     if (!mapContainer.current) return;
@@ -223,6 +322,57 @@ export default function Home() {
       newMap.remove();
     };
   }, []);
+
+  // Reverse geocode locations to get city/state names
+  useEffect(() => {
+    if (allLocations.length === 0) return;
+
+    let cancelled = false;
+
+    async function geocodeAll() {
+      for (const loc of allLocations) {
+        if (cancelled) break;
+        try {
+          const resp = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${loc.lat}&lon=${loc.lng}&format=json&zoom=10&addressdetails=1`
+          );
+          if (!resp.ok) continue;
+          const data = await resp.json();
+          const addr = data.address || {};
+          const city =
+            addr.city || addr.town || addr.village || addr.hamlet || addr.county || "";
+          const state = addr.state || "";
+          const name = city && state ? `${city}, ${state}` : city || state || "";
+          if (name && !cancelled) {
+            setLocationNames((prev) => ({ ...prev, [loc.id]: name }));
+          }
+        } catch {
+          // Keep coordinate fallback
+        }
+        // Nominatim rate limit: 1 request per second
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+    }
+
+    geocodeAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [allLocations]);
+
+  // Listen for map move events to update visible locations
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    map.on("moveend", updateVisibleLocations);
+    // Run once immediately
+    updateVisibleLocations();
+
+    return () => {
+      map.off("moveend", updateVisibleLocations);
+    };
+  }, [updateVisibleLocations]);
 
   async function fetchSwaths(mapInstance: maplibregl.Map) {
     try {
@@ -269,8 +419,6 @@ export default function Home() {
         data: filtered,
       });
 
-      // Fill only — no outline strokes for a smooth, blended look
-      // Insert below vector roads so labels stay readable
       mapInstance.addLayer(
         {
           id: `${layerId}-fill`,
@@ -284,7 +432,6 @@ export default function Home() {
         "highway-casing"
       );
 
-      // Popup on click
       mapInstance.on("click", `${layerId}-fill`, (e) => {
         if (!e.features || e.features.length === 0) return;
         const props = e.features[0].properties;
@@ -310,7 +457,10 @@ export default function Home() {
     }
 
     setFeatureCounts(counts);
-    setTotalFeatures(geojson.features.length);
+
+    // Build location clusters from all features
+    const locations = clusterFeatures(geojson.features);
+    setAllLocations(locations);
 
     // Zoom to fit
     if (geojson.features.length > 0) {
@@ -326,7 +476,7 @@ export default function Home() {
 
   return (
     <div style={{ width: "100vw", height: "100vh", display: "flex" }}>
-      {/* Sidebar — white background, matching reference */}
+      {/* Sidebar */}
       <div
         style={{
           width: 300,
@@ -336,7 +486,7 @@ export default function Home() {
           color: "#333",
           display: "flex",
           flexDirection: "column",
-          overflow: "auto",
+          overflow: "hidden",
           borderRight: "1px solid #e0e0e0",
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
@@ -347,42 +497,35 @@ export default function Home() {
             Hail Exposure Map
           </div>
           <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-            MRMS MESH Swaths
+            MRMS MESH Swaths &middot; May 22, 2024
           </div>
         </div>
 
-        {/* Weather History label */}
-        <div
-          style={{
-            padding: "14px 16px 8px",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#333",
-          }}
-        >
-          Weather History
+        {/* Tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid #eee" }}>
+          <button
+            onClick={() => setSidebarTab("locations")}
+            style={{
+              ...tabStyle,
+              borderBottom: sidebarTab === "locations" ? "2px solid #43A047" : "2px solid transparent",
+              color: sidebarTab === "locations" ? "#222" : "#999",
+            }}
+          >
+            Locations
+          </button>
+          <button
+            onClick={() => setSidebarTab("controls")}
+            style={{
+              ...tabStyle,
+              borderBottom: sidebarTab === "controls" ? "2px solid #43A047" : "2px solid transparent",
+              color: sidebarTab === "controls" ? "#222" : "#999",
+            }}
+          >
+            Controls
+          </button>
         </div>
 
-        {/* Events header */}
-        <div
-          style={{
-            padding: "4px 16px 12px",
-            borderBottom: "1px solid #eee",
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#222" }}>
-            Events At Location
-          </div>
-          <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
-            {loading
-              ? "Loading..."
-              : error
-                ? "Error loading data"
-                : `${totalFeatures} detections found`}
-          </div>
-        </div>
-
-        {/* Threshold toggles */}
+        {/* Tab content */}
         <div style={{ flex: 1, overflow: "auto" }}>
           {error && (
             <div
@@ -399,71 +542,166 @@ export default function Home() {
             </div>
           )}
 
-          {!loading &&
-            !error &&
-            [...THRESHOLDS].reverse().map((t) => {
-              const isHidden = hiddenThresholds.has(t.value);
-              return (
-                <div
-                  key={t.value}
-                  onClick={() => toggleThreshold(t.value)}
-                  style={{
-                    ...eventCardStyle,
-                    cursor: "pointer",
-                    opacity: isHidden ? 0.4 : 1,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: "50%",
-                          background: isHidden ? "#ccc" : t.color,
-                        }}
-                      />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "#222" }}>
-                        &ge; {t.label}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 12, color: "#999" }}>
-                      {featureCounts[t.value] ?? 0}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-
-          {/* Opacity slider */}
-          {!loading && !error && (
-            <div style={{ padding: "16px 16px 12px" }}>
+          {/* Locations tab */}
+          {sidebarTab === "locations" && !loading && !error && (
+            <>
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
+                  padding: "10px 16px",
                   fontSize: 12,
-                  color: "#666",
-                  marginBottom: 6,
+                  color: "#888",
+                  borderBottom: "1px solid #f0f0f0",
                 }}
               >
-                <span>Opacity</span>
-                <span>{Math.round(opacity * 100)}%</span>
+                {visibleLocations.length} of {allLocations.length} locations in view
               </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={Math.round(opacity * 100)}
-                onChange={(e) => handleOpacityChange(Number(e.target.value) / 100)}
-                style={{ width: "100%", cursor: "pointer" }}
-              />
+
+              {visibleLocations.length === 0 && (
+                <div style={{ padding: "24px 16px", fontSize: 13, color: "#999", textAlign: "center" }}>
+                  No hail locations in the current view. Zoom out or pan the map.
+                </div>
+              )}
+
+              {visibleLocations.map((loc) => {
+                const t = THRESHOLD_MAP[loc.maxThreshold];
+                return (
+                  <div
+                    key={loc.id}
+                    onClick={() => flyToLocation(loc)}
+                    style={{
+                      padding: "10px 16px",
+                      borderBottom: "1px solid #f0f0f0",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.background = "#f7f7f7";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background = "";
+                    }}
+                  >
+                    {/* Severity dot */}
+                    <div
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        background: t?.color || "#999",
+                        flexShrink: 0,
+                      }}
+                    />
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#222" }}>
+                        {locationNames[loc.id] || `${loc.lat.toFixed(2)}°N, ${Math.abs(loc.lng).toFixed(2)}°W`}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
+                        {loc.thresholds.map((th) => `${th}"`).join(", ")}
+                      </div>
+                    </div>
+
+                    {/* Max threshold badge */}
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: t?.color || "#999",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {loc.maxThreshold}"
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* Controls tab */}
+          {sidebarTab === "controls" && !loading && !error && (
+            <>
+              {/* Threshold toggles */}
+              <div style={{ padding: "8px 0" }}>
+                <div
+                  style={{
+                    padding: "8px 16px 4px",
+                    fontSize: 11,
+                    color: "#888",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  Thresholds
+                </div>
+                {[...THRESHOLDS].reverse().map((t) => {
+                  const isHidden = hiddenThresholds.has(t.value);
+                  return (
+                    <div
+                      key={t.value}
+                      onClick={() => toggleThreshold(t.value)}
+                      style={{
+                        padding: "10px 16px",
+                        cursor: "pointer",
+                        opacity: isHidden ? 0.4 : 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: "50%",
+                            background: isHidden ? "#ccc" : t.color,
+                          }}
+                        />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "#222" }}>
+                          &ge; {t.label}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 12, color: "#999" }}>
+                        {featureCounts[t.value] ?? 0}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Opacity slider */}
+              <div style={{ padding: "12px 16px", borderTop: "1px solid #f0f0f0" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 12,
+                    color: "#666",
+                    marginBottom: 6,
+                  }}
+                >
+                  <span>Opacity</span>
+                  <span>{Math.round(opacity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={Math.round(opacity * 100)}
+                  onChange={(e) => handleOpacityChange(Number(e.target.value) / 100)}
+                  style={{ width: "100%", cursor: "pointer" }}
+                />
+              </div>
+            </>
+          )}
+
+          {loading && (
+            <div style={{ padding: "24px 16px", fontSize: 13, color: "#999", textAlign: "center" }}>
+              Loading hail data...
             </div>
           )}
         </div>
@@ -530,10 +768,14 @@ export default function Home() {
   );
 }
 
-const eventCardStyle: React.CSSProperties = {
-  margin: "0 12px",
-  padding: "12px",
-  borderBottom: "1px solid #f0f0f0",
+const tabStyle: React.CSSProperties = {
+  flex: 1,
+  background: "none",
+  border: "none",
+  padding: "10px 0",
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
 };
 
 function formatTime(iso: string): string {

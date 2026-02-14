@@ -126,6 +126,24 @@ The response is a GeoJSON FeatureCollection. The viewer splits it by threshold v
 
 ---
 
+## Known Improvements Needed
+
+### Reverse Geocoding for Location Names
+
+**Current approach (slow, fragile):** The sidebar's "Locations" tab shows hail cluster locations by name (e.g., "Dallas, Texas"). To get these names, the viewer calls the Nominatim reverse geocoding API one-at-a-time with a mandatory 1-second delay between requests (Nominatim's rate limit). For 20+ locations, this means the names trickle in over 20+ seconds. If Nominatim is down or rate-limits us, locations fall back to raw coordinates.
+
+See `page.tsx` lines ~326-361 — the `useEffect` that calls `nominatim.openstreetmap.org/reverse` in a serial loop.
+
+**Possible solutions — replace with a local offline city lookup:**
+
+- **SimpleMaps** — Free CSV of US cities (and Canada cities) with name, state, lat, lng, population. `https://simplemaps.com/data/us-cities` and `https://simplemaps.com/data/canada-cities`
+- **GeoNames** — Fully open (CC-BY). Download from `https://download.geonames.org/export/dump/` (`US.zip`, `CA.zip`)
+- **npm packages** — `all-the-cities`, `cities.json`, or similar pre-packaged datasets
+
+Filter to population > 5,000, bundle as a small JSON file, and do nearest-city lookup client-side. Instant, no network dependency.
+
+---
+
 ## Tech Stack
 
 | Tool | What it does |
