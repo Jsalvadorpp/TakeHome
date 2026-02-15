@@ -11,7 +11,7 @@ import {
   ROAD_LAYER_IDS,
 } from "@/lib/constants";
 import type { HailLocation } from "@/lib/types";
-import { getCentroid, getGeometryBounds, addCoordsToBounds } from "@/lib/geometry";
+import { addCoordsToBounds } from "@/lib/geometry";
 import { clusterFeatures } from "@/lib/clustering";
 import { formatTime } from "@/lib/formatting";
 import { reverseGeocode } from "@/lib/geocoding";
