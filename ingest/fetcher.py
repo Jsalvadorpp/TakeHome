@@ -26,8 +26,11 @@ def get_s3_client():
 def _parse_timestamp_from_filename(filename: str) -> datetime | None:
     """Extract the timestamp embedded in an MRMS filename.
 
-    Example filename: MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz
-    Returns a timezone-aware UTC datetime, or None if parsing fails.
+    Example:
+        Input:  "MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz"
+        Output: datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
+
+    Returns None if parsing fails.
     """
     try:
         # Strip directory path if present

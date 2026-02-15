@@ -13,13 +13,18 @@ SAMPLE_TRANSFORM = Affine(0.01, 0.0, -100.0, 0.0, -0.01, 40.0)
 
 
 def _make_grid(rows=20, cols=20):
-    """Create a 20x20 grid with a block of high values in the center.
+    """Test helper: creates fake hail data with known values.
 
-    Layout (values in inches):
-        - Outer ring: 0.0
-        - Middle ring (rows 4-15, cols 4-15): 1.0
-        - Inner ring (rows 7-12, cols 7-12): 2.0
-        - Core (rows 9-10, cols 9-10): 3.0
+    This is NOT part of the real code — it's just for testing. We create synthetic
+    data instead of loading real files so tests run fast and don't depend on external files.
+
+    Returns a 20x20 grid that looks like concentric squares when viewed from above:
+        - Outer ring: 0.0" (no hail) — everything outside the middle ring
+        - Middle ring: 1.0" (rows 4-15, cols 4-15) → 12×12 = 144 cells
+        - Inner ring: 2.0" (rows 7-12, cols 7-12) → 6×6 = 36 cells
+        - Core: 3.0" (rows 9-10, cols 9-10) → 2×2 = 4 cells
+
+    This lets us verify threshold filtering works correctly with predictable counts.
     """
     data = np.zeros((rows, cols), dtype=np.float64)
     data[4:16, 4:16] = 1.0
@@ -32,12 +37,22 @@ def _make_grid(rows=20, cols=20):
 
 
 def test_threshold_selects_correct_pixels():
-    """Given known values, the correct pixels should be above each threshold."""
+    """Verify threshold filtering counts the correct number of cells above each cutoff.
+
+    This tests the basic logic used throughout the pipeline: "how many grid cells
+    have hail >= this threshold?" We use fake data with known values so we can
+    verify the counts are exactly right.
+
+    With our test grid:
+        - Threshold >= 0.75" should match 144 cells (everything 1.0" or higher)
+        - Threshold >= 1.50" should match 36 cells (everything 2.0" or higher)
+        - Threshold >= 2.50" should match 4 cells (the 3.0" core only)
+    """
     data = _make_grid()
 
-    assert (data >= 0.75).sum() == 144  # 12x12 block
-    assert (data >= 1.50).sum() == 36   # 6x6 block
-    assert (data >= 2.50).sum() == 4    # 2x2 core
+    assert (data >= 0.75).sum() == 144  # Middle ring + inner ring + core
+    assert (data >= 1.50).sum() == 36   # Inner ring + core
+    assert (data >= 2.50).sum() == 4    # Core only
 
 
 # --- GeoJSON output ---

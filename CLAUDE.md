@@ -16,6 +16,14 @@ A Python prototype that fetches public NOAA MRMS hail radar grids, converts them
 - Scripts and CLI commands should be **simple one-liners** — no chained pipes, no obscure flags, no bash wizardry.
 - Prefer straightforward `if/else` over ternaries or clever boolean tricks.
 - When in doubt, write the obvious thing.
+- **Documentation & comments must be simple enough for a junior developer or new team member to understand without asking questions.** Always include concrete input/output examples where possible. Avoid jargon — if you must use a technical term, explain it in plain English.
+
+## Testing Guidelines
+
+- **Tests should be simple and readable.** A junior developer should be able to understand what's being tested and why just by reading the test function name and body.
+- **Mock all external dependencies.** Tests must NOT depend on external connections (S3, APIs, network) or external files. Use mocks, fixtures, or in-memory test data instead.
+- **Tests should be fast and isolated.** Each test should run independently in under a second. No shared state between tests.
+- Use descriptive test function names that explain the scenario: `test_empty_result_when_all_below_threshold()` not `test_edge_case_1()`
 
 ## Architecture
 

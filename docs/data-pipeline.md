@@ -24,6 +24,31 @@ The grid is **3500 rows by 7000 columns** — about 24.5 million cells. Each cel
 
 ---
 
+## Why `MESH_Max_60min_00.50`?
+
+NOAA publishes several MESH products with different time windows. Here are the options we had:
+
+| Product | What it contains |
+|---------|-----------------|
+| `MESH` | A single instant snapshot — "hail right now" |
+| `MESH_Max_30min` | Biggest hail at each spot over the last 30 minutes |
+| **`MESH_Max_60min`** | **Biggest hail at each spot over the last 60 minutes** |
+| `MESH_Max_120min` | Biggest hail over the last 2 hours |
+| `MESH_Max_240min` | Biggest hail over the last 4 hours |
+| ... up to `1440min` | Biggest hail over the last 24 hours |
+
+We picked the 60-minute version for three reasons:
+
+1. **It does the hard work for us.** Each file already contains the maximum hail size over the past hour. If we used the instantaneous `MESH` snapshots instead, we would need to write extra code to stack dozens of snapshots together ourselves. The 60-minute product gives us a ready-made "swath" for free.
+
+2. **60 minutes is the right zoom level.** The 30-minute window is too short — it might miss parts of a storm that lingers in an area. The 120-minute or 240-minute windows are too long — they blur multiple separate storms together, making it hard to tell where one storm ended and another began. 60 minutes matches how long a typical hail-producing supercell affects a given area.
+
+3. **We don't need to download every file.** Files arrive every 2 minutes (~720 per day), but since each one already covers a 60-minute window, consecutive files overlap heavily. To cover a multi-hour event, we only need to grab one file per hour — not all 720.
+
+The `_00.50` at the end means "0.50 km above ground level." This is the standard level for hail estimates that represent what actually reaches the ground (as opposed to hail higher up in the atmosphere that might melt before landing).
+
+---
+
 ## Step 1: List Available Files
 
 **Code:** `ingest/fetcher.py` → `list_files()`
