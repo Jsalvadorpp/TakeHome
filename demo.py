@@ -9,8 +9,8 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone
 
+from api.common.parsers import parse_time, parse_thresholds, parse_bbox
 from ingest.fetcher import list_files, fetch_file, PRODUCT_PREFIX
 from processing.decoder import decode_grib2
 from processing.polygonize import grid_to_swaths, composite_max, THRESHOLDS_INCHES
@@ -35,29 +35,6 @@ def parse_args():
         help="Bounding box: minLon,minLat,maxLon,maxLat",
     )
     return parser.parse_args()
-
-
-def parse_time(value: str) -> datetime:
-    """Parse an ISO8601 time string into a timezone-aware datetime."""
-    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def parse_thresholds(value: str) -> list[float]:
-    """Parse comma-separated thresholds string into a list of floats."""
-    return [float(t.strip()) for t in value.split(",")]
-
-
-def parse_bbox(value: str | None) -> tuple[float, float, float, float] | None:
-    """Parse bbox string (minLon,minLat,maxLon,maxLat) into a tuple."""
-    if value is None:
-        return None
-    parts = [float(p.strip()) for p in value.split(",")]
-    if len(parts) != 4:
-        raise ValueError("bbox must have 4 values: minLon,minLat,maxLon,maxLat")
-    return (parts[0], parts[1], parts[2], parts[3])
 
 
 def main():

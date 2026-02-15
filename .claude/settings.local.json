@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(aws s3 ls:*)"
+      "Bash(aws s3 ls:*)",
+      "Bash(docker compose build:*)",
+      "Bash(docker compose run:*)"
     ]
   }
 }

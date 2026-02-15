@@ -43,7 +43,7 @@ def test_swaths_invalid_time_format():
 
 
 def test_swaths_invalid_thresholds():
-    with patch("api.main.list_files", return_value=["fake_key"]):
+    with patch("api.routers.swaths.list_files", return_value=["fake_key"]):
         response = client.get("/swaths", params={
             "start_time": "2024-05-22T20:00:00Z",
             "end_time": "2024-05-22T21:00:00Z",
@@ -53,7 +53,7 @@ def test_swaths_invalid_thresholds():
 
 
 def test_swaths_invalid_bbox():
-    with patch("api.main.list_files", return_value=["fake_key"]):
+    with patch("api.routers.swaths.list_files", return_value=["fake_key"]):
         response = client.get("/swaths", params={
             "start_time": "2024-05-22T20:00:00Z",
             "end_time": "2024-05-22T21:00:00Z",
@@ -66,7 +66,7 @@ def test_swaths_invalid_bbox():
 
 
 def test_swaths_no_data_returns_404():
-    with patch("api.main.list_files", return_value=[]):
+    with patch("api.routers.swaths.list_files", return_value=[]):
         response = client.get("/swaths", params={
             "start_time": "2024-01-01T00:00:00Z",
             "end_time": "2024-01-01T01:00:00Z",
@@ -98,7 +98,7 @@ def test_swaths_valid_request():
     """A valid request should return 200 with a GeoJSON FeatureCollection."""
     fake_fc = _make_fake_fc()
 
-    with patch("api.main._build_swaths", return_value=fake_fc):
+    with patch("api.routers.swaths._build_swaths", return_value=fake_fc):
         response = client.get("/swaths", params={
             "start_time": "2024-05-22T20:00:00Z",
             "end_time": "2024-05-22T21:00:00Z",
@@ -114,7 +114,7 @@ def test_swaths_file_returns_attachment():
     """The /swaths/file endpoint should return a downloadable file."""
     fake_fc = _make_fake_fc()
 
-    with patch("api.main._build_swaths", return_value=fake_fc):
+    with patch("api.routers.swaths._build_swaths", return_value=fake_fc):
         response = client.get("/swaths/file", params={
             "start_time": "2024-05-22T20:00:00Z",
             "end_time": "2024-05-22T21:00:00Z",
