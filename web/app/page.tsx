@@ -2,224 +2,20 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-// Test event: May 22, 2024 severe hail outbreak
-const DEFAULT_START = "2024-05-22T20:00:00Z";
-const DEFAULT_END = "2024-05-22T22:00:00Z";
-
-// Satellite basemap + vector roads/labels for readability (all free, no API keys)
-const SATELLITE_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: {
-    satellite: {
-      type: "raster",
-      tiles: [
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      ],
-      tileSize: 256,
-      attribution:
-        "&copy; Esri, Maxar, Earthstar Geographics &middot; &copy; OpenMapTiles &copy; OpenStreetMap",
-    },
-    openmaptiles: {
-      type: "vector",
-      url: "https://tiles.openfreemap.org/planet",
-    },
-  },
-  layers: [
-    { id: "satellite", type: "raster", source: "satellite" },
-    {
-      id: "highway-casing",
-      type: "line",
-      source: "openmaptiles",
-      "source-layer": "transportation",
-      filter: ["in", "class", "motorway", "trunk"],
-      paint: {
-        "line-color": "rgba(0,0,0,0.4)",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1.5, 10, 4, 14, 8],
-      },
-      layout: { "line-cap": "round", "line-join": "round", "visibility": "none" },
-    },
-    {
-      id: "highway-fill",
-      type: "line",
-      source: "openmaptiles",
-      "source-layer": "transportation",
-      filter: ["in", "class", "motorway", "trunk"],
-      paint: {
-        "line-color": "rgba(255,255,255,0.8)",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.8, 10, 2.5, 14, 5],
-      },
-      layout: { "line-cap": "round", "line-join": "round", "visibility": "none" },
-    },
-    {
-      id: "highway-label",
-      type: "symbol",
-      source: "openmaptiles",
-      "source-layer": "transportation_name",
-      filter: ["in", "class", "motorway", "trunk"],
-      layout: {
-        "symbol-placement": "line",
-        "text-field": "{ref}",
-        "text-font": ["Open Sans Bold"],
-        "text-size": 11,
-        "text-rotation-alignment": "map",
-        "symbol-spacing": 400,
-        "visibility": "none",
-      },
-      paint: {
-        "text-color": "#333",
-        "text-halo-color": "rgba(255,255,255,0.95)",
-        "text-halo-width": 2,
-      },
-    },
-    {
-      id: "place-label",
-      type: "symbol",
-      source: "openmaptiles",
-      "source-layer": "place",
-      filter: ["in", "class", "city", "town", "village", "suburb"],
-      layout: {
-        "text-field": "{name}",
-        "text-font": ["Open Sans Bold"],
-        "text-size": ["interpolate", ["linear"], ["zoom"],
-          5, ["match", ["get", "class"], "city", 14, 10],
-          10, ["match", ["get", "class"], "city", 18, "town", 14, 12],
-          14, ["match", ["get", "class"], "city", 22, "town", 16, 14],
-        ],
-        "text-anchor": "center",
-        "text-max-width": 8,
-      },
-      paint: {
-        "text-color": "#ffffff",
-        "text-halo-color": "rgba(0,0,0,0.7)",
-        "text-halo-width": 2,
-      },
-    },
-    {
-      id: "boundary-label",
-      type: "symbol",
-      source: "openmaptiles",
-      "source-layer": "place",
-      filter: ["==", "class", "state"],
-      minzoom: 4,
-      maxzoom: 8,
-      layout: {
-        "text-field": "{name}",
-        "text-font": ["Open Sans Bold"],
-        "text-size": 12,
-        "text-transform": "uppercase",
-        "text-letter-spacing": 0.15,
-      },
-      paint: {
-        "text-color": "rgba(255,255,255,0.8)",
-        "text-halo-color": "rgba(0,0,0,0.6)",
-        "text-halo-width": 1.5,
-      },
-    },
-  ],
-};
-
-const THRESHOLDS = [
-  { value: 2.0, color: "#BF360C", label: '2.00"', opacity: 0.7 },
-  { value: 1.5, color: "#E65100", label: '1.50"', opacity: 0.6 },
-  { value: 1.0, color: "#F9A825", label: '1.00"', opacity: 0.5 },
-  { value: 0.75, color: "#9E9D24", label: '0.75"', opacity: 0.4 },
-];
-
-const THRESHOLD_MAP: Record<number, typeof THRESHOLDS[0]> = {};
-for (const t of THRESHOLDS) THRESHOLD_MAP[t.value] = t;
-
-// A hail location = a cluster of nearby polygons grouped together
-interface HailLocation {
-  id: number;
-  lat: number;
-  lng: number;
-  maxThreshold: number;
-  thresholds: number[];
-  bounds: maplibregl.LngLatBounds;
-}
-
-// Compute centroid of a GeoJSON geometry by averaging all coordinates
-function getCentroid(geometry: any): [number, number] {
-  let sumLng = 0;
-  let sumLat = 0;
-  let count = 0;
-
-  function walk(coords: any) {
-    if (typeof coords[0] === "number") {
-      sumLng += coords[0];
-      sumLat += coords[1];
-      count++;
-    } else {
-      for (const c of coords) walk(c);
-    }
-  }
-
-  walk(geometry.coordinates);
-  return count > 0 ? [sumLng / count, sumLat / count] : [0, 0];
-}
-
-// Compute bounds of a GeoJSON geometry
-function getGeometryBounds(geometry: any): maplibregl.LngLatBounds {
-  const bounds = new maplibregl.LngLatBounds();
-  addCoordsToBounds(geometry.coordinates, bounds);
-  return bounds;
-}
-
-// Group features into locations by clustering nearby centroids
-function clusterFeatures(features: any[]): HailLocation[] {
-  // Sort by threshold descending so highest severity comes first
-  const sorted = [...features].sort(
-    (a, b) => b.properties.threshold - a.properties.threshold
-  );
-
-  const locations: HailLocation[] = [];
-  const assigned = new Set<number>();
-
-  // Simple distance-based clustering: ~0.5 degrees (~50km)
-  const CLUSTER_DISTANCE = 0.5;
-
-  for (let i = 0; i < sorted.length; i++) {
-    if (assigned.has(i)) continue;
-
-    const centroid = getCentroid(sorted[i].geometry);
-    const bounds = getGeometryBounds(sorted[i].geometry);
-    const thresholds = new Set<number>([sorted[i].properties.threshold]);
-
-    // Find nearby features and merge into this cluster
-    for (let j = i + 1; j < sorted.length; j++) {
-      if (assigned.has(j)) continue;
-      const other = getCentroid(sorted[j].geometry);
-      const dist = Math.sqrt(
-        (centroid[0] - other[0]) ** 2 + (centroid[1] - other[1]) ** 2
-      );
-      if (dist < CLUSTER_DISTANCE) {
-        assigned.add(j);
-        thresholds.add(sorted[j].properties.threshold);
-        const otherBounds = getGeometryBounds(sorted[j].geometry);
-        bounds.extend(otherBounds.getSouthWest());
-        bounds.extend(otherBounds.getNorthEast());
-      }
-    }
-
-    assigned.add(i);
-    locations.push({
-      id: locations.length,
-      lng: centroid[0],
-      lat: centroid[1],
-      maxThreshold: sorted[i].properties.threshold,
-      thresholds: Array.from(thresholds).sort((a, b) => b - a),
-      bounds,
-    });
-  }
-
-  // Sort by max threshold descending
-  locations.sort((a, b) => b.maxThreshold - a.maxThreshold);
-  return locations;
-}
+import { SATELLITE_STYLE } from "@/lib/map-style";
+import {
+  DEFAULT_START,
+  DEFAULT_END,
+  THRESHOLDS,
+  THRESHOLD_MAP,
+  ROAD_LAYER_IDS,
+} from "@/lib/constants";
+import type { HailLocation } from "@/lib/types";
+import { getCentroid, getGeometryBounds, addCoordsToBounds } from "@/lib/geometry";
+import { clusterFeatures } from "@/lib/clustering";
+import { formatTime } from "@/lib/formatting";
+import { reverseGeocode } from "@/lib/geocoding";
+import { fetchSwathsData } from "@/lib/api";
 
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -233,8 +29,6 @@ export default function Home() {
   const [visibleLocations, setVisibleLocations] = useState<HailLocation[]>([]);
   const [sidebarTab, setSidebarTab] = useState<"controls" | "locations">("locations");
   const [locationNames, setLocationNames] = useState<Record<number, string>>({});
-
-  const ROAD_LAYER_IDS = ["highway-casing", "highway-fill", "highway-label"];
 
   function toggleRoads() {
     const map = mapRef.current;
@@ -329,23 +123,12 @@ export default function Home() {
     async function geocodeAll() {
       for (const loc of allLocations) {
         if (cancelled) break;
-        try {
-          const resp = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${loc.lat}&lon=${loc.lng}&format=json&zoom=10&addressdetails=1`
-          );
-          if (!resp.ok) continue;
-          const data = await resp.json();
-          const addr = data.address || {};
-          const city =
-            addr.city || addr.town || addr.village || addr.hamlet || addr.county || "";
-          const state = addr.state || "";
-          const name = city && state ? `${city}, ${state}` : city || state || "";
-          if (name && !cancelled) {
-            setLocationNames((prev) => ({ ...prev, [loc.id]: name }));
-          }
-        } catch {
-          // Keep coordinate fallback
+
+        const name = await reverseGeocode(loc.lat, loc.lng);
+        if (name && !cancelled) {
+          setLocationNames((prev) => ({ ...prev, [loc.id]: name }));
         }
+
         // Nominatim rate limit: 1 request per second
         await new Promise((r) => setTimeout(r, 1100));
       }
@@ -376,15 +159,7 @@ export default function Home() {
       setLoading(true);
       setError(null);
 
-      const url = `${API_BASE}/swaths?start_time=${DEFAULT_START}&end_time=${DEFAULT_END}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.detail || `API returned ${response.status}`);
-      }
-
-      const geojson = await response.json();
+      const geojson = await fetchSwathsData(DEFAULT_START, DEFAULT_END);
       addLayers(mapInstance, geojson);
     } catch (err) {
       setError(
@@ -775,30 +550,3 @@ const tabStyle: React.CSSProperties = {
   fontWeight: 600,
   cursor: "pointer",
 };
-
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: "UTC",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function addCoordsToBounds(
-  coords: any,
-  bounds: maplibregl.LngLatBounds
-): void {
-  if (typeof coords[0] === "number") {
-    bounds.extend(coords as [number, number]);
-  } else {
-    for (const child of coords) {
-      addCoordsToBounds(child, bounds);
-    }
-  }
-}
