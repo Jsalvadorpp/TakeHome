@@ -157,16 +157,6 @@ python demo.py --start 2024-05-22T20:00:00Z --end 2024-05-22T22:00:00Z --output 
 
 ---
 
-## Running Tests
-
-```bash
-pytest
-```
-
-All tests use synthetic data and run offline — no network access needed.
-
----
-
 ## Finding a Time Window With Data
 
 MRMS data is public. Browse available files with:
