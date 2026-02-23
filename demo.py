@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--output", default="swaths.geojson", help="Output file path")
     parser.add_argument(
         "--thresholds",
-        default="0.75,1.00,1.50,2.00",
+        default="0.50,0.75,1.00,1.50,2.00",
         help="Comma-separated thresholds in inches",
     )
     parser.add_argument(
@@ -64,14 +64,12 @@ def main():
         print(f"Wrote 0 features to {args.output}")
         return
 
-    # Sample files (MESH_Max_60min covers 60-min windows, so one per hour is enough)
-    SAMPLE_STEP = 30
-    if len(keys) > SAMPLE_STEP:
-        sampled = keys[::SAMPLE_STEP]
-        if keys[-1] not in sampled:
-            sampled.append(keys[-1])
-        logger.info("Sampled %d files down to %d", len(keys), len(sampled))
-        keys = sampled
+    # MESH_Max_1440min is a 24-hour rolling max: the last file in the window
+    # already contains the maximum hail over the entire requested period.
+    # We only ever need that one file — no need to download the other ~720.
+    if len(keys) > 1:
+        logger.info("Using last of %d files (1440min rolling max covers full window)", len(keys))
+        keys = [keys[-1]]
 
     # Step 2: Fetch files
     t0 = time.time()
@@ -122,7 +120,7 @@ def main():
         data=data,
         transform=transform,
         thresholds=thresholds,
-        product="MESH_Max_60min",
+        product="MESH_Max_1440min",
         start_time=args.start,
         end_time=args.end,
         source_files=source_filenames,

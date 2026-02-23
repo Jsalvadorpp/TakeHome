@@ -87,17 +87,12 @@ def _build_swaths(start_time: str, end_time: str, thresholds: str | None, bbox: 
     if len(keys) == 0:
         raise HTTPException(status_code=404, detail="No MRMS files found for this time window.")
 
-    # Sample files to avoid processing redundant data.
-    # MESH_Max_60min is already a 60-minute rolling max, so we only need
-    # one file per ~60 minutes for full coverage of any time window.
-    # Files are 2 minutes apart, so every 30th file = every 60 minutes.
-    SAMPLE_STEP = 30
-    if len(keys) > SAMPLE_STEP:
-        sampled = keys[::SAMPLE_STEP]
-        if keys[-1] not in sampled:
-            sampled.append(keys[-1])
-        logger.info("Sampled %d files down to %d", len(keys), len(sampled))
-        keys = sampled
+    # MESH_Max_1440min is a 24-hour rolling max: the last file in the window
+    # already contains the maximum hail over the entire requested period.
+    # We only ever need that one file — no need to download the other ~720.
+    if len(keys) > 1:
+        logger.info("Using last of %d files (1440min rolling max covers full window)", len(keys))
+        keys = [keys[-1]]
 
     # Step 2: Fetch files
     t0 = time.time()
@@ -143,7 +138,7 @@ def _build_swaths(start_time: str, end_time: str, thresholds: str | None, bbox: 
         data=data,
         transform=transform,
         thresholds=threshold_list,
-        product="MESH_Max_60min",
+        product="MESH_Max_1440min",
         start_time=start_time,
         end_time=end_time,
         source_files=source_filenames,

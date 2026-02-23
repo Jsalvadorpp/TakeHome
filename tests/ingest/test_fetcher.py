@@ -16,21 +16,21 @@ from ingest.fetcher import (
 
 
 def test_parse_timestamp_from_full_path():
-    filename = "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz"
+    filename = "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2.gz"
     result = _parse_timestamp_from_filename(filename)
     expected = datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
     assert result == expected
 
 
 def test_parse_timestamp_from_filename_only():
-    filename = "MRMS_MESH_Max_60min_00.50_20240522-143200.grib2.gz"
+    filename = "MRMS_MESH_Max_1440min_00.50_20240522-143200.grib2.gz"
     result = _parse_timestamp_from_filename(filename)
     expected = datetime(2024, 5, 22, 14, 32, 0, tzinfo=timezone.utc)
     assert result == expected
 
 
 def test_parse_timestamp_from_decompressed_filename():
-    filename = "MRMS_MESH_Max_60min_00.50_20240522-200000.grib2"
+    filename = "MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2"
     result = _parse_timestamp_from_filename(filename)
     expected = datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
     assert result == expected
@@ -67,10 +67,10 @@ def test_decompress_gz(tmp_path):
 def test_list_files_filters_by_time():
     """list_files should only return keys whose timestamps fall within the range."""
     fake_objects = [
-        {"Key": "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-190000.grib2.gz"},
-        {"Key": "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz"},
-        {"Key": "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-210000.grib2.gz"},
-        {"Key": "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-220000.grib2.gz"},
+        {"Key": "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-190000.grib2.gz"},
+        {"Key": "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2.gz"},
+        {"Key": "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-210000.grib2.gz"},
+        {"Key": "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-220000.grib2.gz"},
     ]
 
     mock_paginator = MagicMock()
@@ -82,7 +82,7 @@ def test_list_files_filters_by_time():
     with patch("ingest.fetcher.get_s3_client", return_value=mock_s3):
         start = datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
         end = datetime(2024, 5, 22, 21, 0, 0, tzinfo=timezone.utc)
-        keys = list_files("CONUS/MESH_Max_60min_00.50", start, end)
+        keys = list_files("CONUS/MESH_Max_1440min_00.50", start, end)
 
     assert len(keys) == 2
     assert "20240522-200000" in keys[0]
@@ -100,7 +100,7 @@ def test_list_files_empty():
     with patch("ingest.fetcher.get_s3_client", return_value=mock_s3):
         start = datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
         end = datetime(2024, 5, 22, 21, 0, 0, tzinfo=timezone.utc)
-        keys = list_files("CONUS/MESH_Max_60min_00.50", start, end)
+        keys = list_files("CONUS/MESH_Max_1440min_00.50", start, end)
 
     assert keys == []
 
@@ -113,7 +113,7 @@ def test_list_files_s3_error_returns_empty():
     with patch("ingest.fetcher.get_s3_client", return_value=mock_s3):
         start = datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
         end = datetime(2024, 5, 22, 21, 0, 0, tzinfo=timezone.utc)
-        keys = list_files("CONUS/MESH_Max_60min_00.50", start, end)
+        keys = list_files("CONUS/MESH_Max_1440min_00.50", start, end)
 
     assert keys == []
 
@@ -123,10 +123,10 @@ def test_list_files_s3_error_returns_empty():
 
 def test_fetch_file_caching(tmp_path):
     """fetch_file should skip download if the decompressed file already exists."""
-    cached_file = tmp_path / "MRMS_MESH_Max_60min_00.50_20240522-200000.grib2"
+    cached_file = tmp_path / "MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2"
     cached_file.write_bytes(b"cached data")
 
-    key = "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz"
+    key = "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2.gz"
     result = fetch_file(key, cache_dir=tmp_path)
 
     assert result == cached_file
@@ -136,7 +136,7 @@ def test_fetch_file_downloads_and_decompresses(tmp_path):
     """fetch_file should download from S3 and decompress the .gz file."""
     import gzip
 
-    key = "CONUS/MESH_Max_60min_00.50/20240522/MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz"
+    key = "CONUS/MESH_Max_1440min_00.50/20240522/MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2.gz"
     content = b"fake grib2 data"
 
     def fake_download(bucket, s3_key, local_path):

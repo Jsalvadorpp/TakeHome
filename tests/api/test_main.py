@@ -84,7 +84,7 @@ def _make_fake_fc():
             geometry={"type": "Polygon", "coordinates": [[[-100, 40], [-99, 40], [-99, 41], [-100, 41], [-100, 40]]]},
             properties={
                 "threshold": 1.0,
-                "product": "MESH_Max_60min",
+                "product": "MESH_Max_1440min",
                 "start_time": "2024-05-22T20:00:00Z",
                 "end_time": "2024-05-22T21:00:00Z",
                 "source_files": ["test.grib2"],

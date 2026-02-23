@@ -13,8 +13,8 @@ from botocore.config import Config
 logger = logging.getLogger(__name__)
 
 BUCKET = "noaa-mrms-pds"
-PRODUCT_PREFIX = "CONUS/MESH_Max_60min_00.50"
-FILENAME_PREFIX = "MRMS_MESH_Max_60min_00.50"
+PRODUCT_PREFIX = "CONUS/MESH_Max_1440min_00.50"
+FILENAME_PREFIX = "MRMS_MESH_Max_1440min_00.50"
 TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 
 
@@ -27,7 +27,7 @@ def _parse_timestamp_from_filename(filename: str) -> datetime | None:
     """Extract the timestamp embedded in an MRMS filename.
 
     Example:
-        Input:  "MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz"
+        Input:  "MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2.gz"
         Output: datetime(2024, 5, 22, 20, 0, 0, tzinfo=timezone.utc)
 
     Returns None if parsing fails.
@@ -40,7 +40,7 @@ def _parse_timestamp_from_filename(filename: str) -> datetime | None:
         name = name.replace(".grib2.gz", "").replace(".grib2", "")
 
         # The timestamp is the last part after the final underscore
-        # MRMS_MESH_Max_60min_00.50_20240522-200000
+        # MRMS_MESH_Max_1440min_00.50_20240522-200000
         timestamp_str = name.split("_")[-1]
 
         dt = datetime.strptime(timestamp_str, TIMESTAMP_FORMAT)

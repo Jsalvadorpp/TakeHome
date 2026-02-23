@@ -7,13 +7,13 @@ import geojson
 import numpy as np
 from rasterio.features import shapes
 from rasterio.transform import Affine
-from scipy.ndimage import binary_closing, binary_opening
+from scipy.ndimage import binary_closing
 from shapely.geometry import mapping, shape
 from shapely.validation import make_valid
 
 logger = logging.getLogger(__name__)
 
-THRESHOLDS_INCHES = [0.75, 1.00, 1.50, 2.00]
+THRESHOLDS_INCHES = [0.50, 0.75, 1.00, 1.50, 2.00]
 
 
 def grid_to_swaths(
@@ -26,7 +26,7 @@ def grid_to_swaths(
     source_files: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     simplify_tolerance: float = 0.005,
-    min_area_deg2: float = 1e-5,
+    min_area_deg2: float = 1e-6,
 ) -> geojson.FeatureCollection:
     """Convert grid data to GeoJSON swath polygons at the given thresholds.
 
@@ -77,9 +77,8 @@ def _polygonize_threshold(
     mask = data >= threshold
     mask = mask & ~np.isnan(data)
 
-    # Step 2: Morphological cleanup (close small gaps, then remove small noise)
+    # Step 2: Morphological cleanup (close small gaps within existing swaths)
     mask = binary_closing(mask, structure=np.ones((2, 2)))
-    mask = binary_opening(mask, structure=np.ones((2, 2)))
 
     # Convert to uint8 for rasterio
     mask = mask.astype(np.uint8)
@@ -110,16 +109,20 @@ def _polygonize_threshold(
         if bbox is not None:
             min_lon, min_lat, max_lon, max_lat = bbox
             geom = geom.intersection(
-                shape({
-                    "type": "Polygon",
-                    "coordinates": [[
-                        [min_lon, min_lat],
-                        [max_lon, min_lat],
-                        [max_lon, max_lat],
-                        [min_lon, max_lat],
-                        [min_lon, min_lat],
-                    ]],
-                })
+                shape(
+                    {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [min_lon, min_lat],
+                                [max_lon, min_lat],
+                                [max_lon, max_lat],
+                                [min_lon, max_lat],
+                                [min_lon, min_lat],
+                            ]
+                        ],
+                    }
+                )
             )
             if geom.is_empty:
                 continue
@@ -138,7 +141,7 @@ def _polygonize_threshold(
         )
         features.append(feature)
 
-    logger.info("Threshold %.2f\": %d polygons", threshold, len(features))
+    logger.info('Threshold %.2f": %d polygons', threshold, len(features))
     return features
 
 

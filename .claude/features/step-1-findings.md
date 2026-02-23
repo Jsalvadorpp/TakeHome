@@ -1,9 +1,9 @@
 # Step 1 — Findings (Completed)
 
-## Chosen Product: `MESH_Max_60min_00.50`
+## Chosen Product: `MESH_Max_1440min_00.50`
 
-- **S3 prefix:** `s3://noaa-mrms-pds/CONUS/MESH_Max_60min_00.50/YYYYMMDD/`
-- **Why:** Rolling 60-minute maximum MESH. Each grid cell already contains the largest hail diameter estimated over the previous 60 minutes — no manual compositing needed. 2-minute time resolution, ~720 files/day.
+- **S3 prefix:** `s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/YYYYMMDD/`
+- **Why:** Rolling 1440-minute (24-hour) maximum MESH. Each grid cell already contains the largest hail diameter estimated over the previous 24 hours — no manual compositing needed. 2-minute time resolution, ~720 files/day.
 
 ## Available MESH Products in Bucket
 
@@ -11,16 +11,16 @@
 |---------|-------------|
 | `MESH_00.50/` | Instantaneous MESH snapshots |
 | `MESH_Max_30min_00.50/` | 30-min rolling max |
-| **`MESH_Max_60min_00.50/`** | **60-min rolling max (chosen)** |
+| `MESH_Max_60min_00.50/` | 60-min rolling max |
 | `MESH_Max_120min_00.50/` | 120-min rolling max |
 | `MESH_Max_240min_00.50/` | 240-min rolling max |
 | `MESH_Max_360min_00.50/` | 360-min rolling max |
-| `MESH_Max_1440min_00.50/` | 24-hr rolling max |
+| **`MESH_Max_1440min_00.50/`** | **24-hr rolling max (chosen)** |
 
 ## File Naming Convention
 
 ```
-MRMS_MESH_Max_60min_00.50_YYYYMMDD-HHMMSS.grib2.gz
+MRMS_MESH_Max_1440min_00.50_YYYYMMDD-HHMMSS.grib2.gz
 ```
 
 - Timestamps on even 2-minute intervals (00, 02, 04, ..., 58)
@@ -37,7 +37,7 @@ MRMS_MESH_Max_60min_00.50_YYYYMMDD-HHMMSS.grib2.gz
 
 ## Compositing Strategy
 
-Since the product is already a 60-min rolling max, for multi-hour time windows we take `np.nanmax()` across snapshots sampled at intervals (e.g., one per hour) to cover the full window.
+Since the product is already a 1440-min (24-hour) rolling max, a single file covers the full day. We sample every 720th file (720 files × 2 min = 1440 min) to avoid redundant downloads.
 
 ## Files Updated
 

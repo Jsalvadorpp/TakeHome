@@ -8,13 +8,13 @@ Fetches public NOAA MRMS hail radar data, builds GeoJSON polygons showing where 
 
 ## MRMS Product
 
-**Product:** MESH_Max_60min_00.50 (Maximum Estimated Size of Hail — 60-minute rolling max)
+**Product:** MESH_Max_1440min_00.50 (Maximum Estimated Size of Hail — 1440-minute / 24-hour rolling max)
 
-- **S3 Path:** `s3://noaa-mrms-pds/CONUS/MESH_Max_60min_00.50/YYYYMMDD/`
-- **Why:** This is the 60-minute rolling maximum MESH product. Each grid cell already contains the largest hail diameter estimated over the previous 60 minutes, making it ideal for building swath footprints without manual compositing. Files are generated every 2 minutes.
+- **S3 Path:** `s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/YYYYMMDD/`
+- **Why:** This is the 1440-minute (24-hour) rolling maximum MESH product. Each grid cell already contains the largest hail diameter estimated over the previous 24 hours, making it ideal for building full-day swath footprints without manual compositing. Files are generated every 2 minutes.
 - **Resolution:** ~0.01° (~1 km) lat/lon grid, WGS84
 - **Format:** Gzipped GRIB2 (`.grib2.gz`), ~80–230 KB per file
-- **File naming:** `MRMS_MESH_Max_60min_00.50_YYYYMMDD-HHMMSS.grib2.gz`
+- **File naming:** `MRMS_MESH_Max_1440min_00.50_YYYYMMDD-HHMMSS.grib2.gz`
 
 **Test Event:** May 22, 2024
 
@@ -162,13 +162,13 @@ python demo.py --start 2024-05-22T20:00:00Z --end 2024-05-22T22:00:00Z --output 
 MRMS data is public. Browse available files with:
 
 ```bash
-aws s3 ls --no-sign-request s3://noaa-mrms-pds/CONUS/MESH_Max_60min_00.50/
+aws s3 ls --no-sign-request s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/
 ```
 
 Drill into a specific date to see what's available:
 
 ```bash
-aws s3 ls --no-sign-request s3://noaa-mrms-pds/CONUS/MESH_Max_60min_00.50/20240522/
+aws s3 ls --no-sign-request s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/20240522/
 ```
 
 Look for dates in May or June — these tend to have severe hail events in the Great Plains. Larger file sizes (>150 KB) usually indicate significant hail activity.
