@@ -9,3 +9,4 @@ If you're new to the project, start here and read in this order:
 3. **[Data Pipeline](data-pipeline.md)** — How raw radar data becomes colored shapes on a map, step by step.
 4. **[API](api.md)** — How the backend server works and what you can ask it for.
 5. **[Web Viewer](web-viewer.md)** — How the map in the browser works.
+6. **[Improvements](improvements.md)** — Running list of observations, known limitations, and ideas for future work.

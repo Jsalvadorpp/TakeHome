@@ -6,3 +6,9 @@ services:
     volumes:
       - .:/app  # Mount entire project directory
       - ./cache:/app/cache
+    env_file: .env  # Load variables from .env (used for local overrides)
+    environment:
+      # Override DATABASE_URL so the container reaches the host's Postgres.
+      # Inside Docker on Mac/Windows, host.docker.internal resolves to the host machine.
+      # This is different from .env which uses localhost (for running Python locally).
+      - DATABASE_URL=postgresql://postgres:1234@host.docker.internal:5432/postgres

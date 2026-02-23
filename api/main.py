@@ -8,17 +8,32 @@ and scalability.
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import health, swaths
+from db.client import get_connection
+from db.repository import create_tables
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run setup tasks when the API starts up."""
+    conn = get_connection()
+    try:
+        create_tables(conn)
+    finally:
+        conn.close()
+    yield
+
+
 # Initialize FastAPI app
-app = FastAPI(title="MRMS Hail Swaths API")
+app = FastAPI(title="MRMS Hail Swaths API", lifespan=lifespan)
 
 # Configure CORS to allow web viewer to access API
 app.add_middleware(

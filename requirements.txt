@@ -8,5 +8,7 @@ shapely
 numpy
 geojson
 scipy
+psycopg2-binary
+python-dotenv
 pytest
 httpx
