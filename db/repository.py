@@ -1,12 +1,13 @@
 """Read and write hail swaths to/from Postgres.
 
 These functions are used by:
-- pipeline/transformer.py  → insert_swaths() to store processed data
-- api/                     → swaths_exist() + get_swaths() to serve the web viewer
+- api/  → swaths_exist() + get_swaths() to serve the web viewer
+          insert_swaths() to store processed data after an S3 fetch
 
-Storage design: one row per threshold per date (5 rows per day).
-Each row stores ALL polygons for that threshold as a single JSONB array.
-This is much more compact than one row per polygon (which can be thousands).
+Storage design: one row per date.
+All polygons for all thresholds are stored together in a single JSONB array.
+Each polygon feature carries its own `threshold` property so we can still
+filter by threshold when reading.
 
 No PostGIS required. Geometry is stored as plain JSONB.
 Bounding box filtering is done in Python using Shapely.
@@ -22,12 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 def create_tables(conn) -> None:
-    """Create the hail_swaths table and indexes if they don't already exist.
+    """Create the hail_swaths table and index if they don't already exist.
 
     Safe to call every time the app starts — uses IF NOT EXISTS so it only
     creates the table on the first run and does nothing on subsequent runs.
 
-    Schema: one row per (valid_date, threshold) pair — 5 rows per day.
+    Schema: one row per date. All threshold polygons stored together.
 
     Args:
         conn: An open psycopg2 connection.
@@ -36,20 +37,19 @@ def create_tables(conn) -> None:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS hail_swaths (
                 id           SERIAL PRIMARY KEY,
-                features     JSONB        NOT NULL,  -- all polygons for this threshold (JSON array)
-                threshold    FLOAT        NOT NULL,  -- hail size in inches (e.g. 0.75)
+                features     JSONB        NOT NULL,  -- all polygons for all thresholds (flat JSON array)
                 product      TEXT         NOT NULL,  -- MRMS product name
                 valid_date   DATE         NOT NULL,  -- calendar date this swath covers
                 start_time   TIMESTAMPTZ,
                 end_time     TIMESTAMPTZ,
                 source_files TEXT[],
                 created_at   TIMESTAMPTZ  DEFAULT NOW(),
-                UNIQUE (valid_date, threshold)       -- one row per date+threshold, no duplicates
+                UNIQUE (valid_date)                  -- one row per date, no duplicates
             );
         """)
         cur.execute("""
-            CREATE INDEX IF NOT EXISTS hail_swaths_date_threshold_idx
-                ON hail_swaths (valid_date, threshold);
+            CREATE INDEX IF NOT EXISTS hail_swaths_date_idx
+                ON hail_swaths (valid_date);
         """)
     conn.commit()
     logger.info("Database tables ready")
@@ -74,10 +74,10 @@ def swaths_exist(conn, valid_date: str) -> bool:
 
 
 def insert_swaths(conn, feature_collection: dict, valid_date: str) -> int:
-    """Insert one row per threshold into the DB.
+    """Insert one row for the date, storing all threshold polygons together.
 
-    Groups all polygons by threshold and stores them together in a single row,
-    so a full day of data for 5 thresholds = exactly 5 rows in the database.
+    All polygons from all thresholds are stored as a single flat JSON array.
+    Each polygon feature keeps its `threshold` property so it can be filtered later.
 
     Uses ON CONFLICT DO NOTHING so running it twice for the same date is safe.
 
@@ -87,54 +87,44 @@ def insert_swaths(conn, feature_collection: dict, valid_date: str) -> int:
         valid_date: The calendar date these swaths cover, e.g. "2024-05-22".
 
     Returns:
-        Number of rows inserted (one per threshold, typically 5).
+        1 if a row was inserted, 0 if the date already existed.
 
     Example:
         conn = get_connection()
         fc = grid_to_swaths(...)
         count = insert_swaths(conn, fc, "2024-05-22")
-        # count = 5  (one row per threshold)
+        # count = 1  (one row for the whole day)
     """
     features = feature_collection.get("features", [])
     if not features:
         logger.warning("insert_swaths called with 0 features for %s — nothing inserted", valid_date)
         return 0
 
-    # Group all polygons by their threshold value
-    by_threshold: dict[float, list] = {}
-    for feature in features:
-        t = feature["properties"]["threshold"]
-        if t not in by_threshold:
-            by_threshold[t] = []
-        by_threshold[t].append(feature)
-
     # All features share the same metadata — grab it from the first feature
     sample = features[0]["properties"]
 
     sql = """
-        INSERT INTO hail_swaths (features, threshold, product, valid_date, start_time, end_time, source_files)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (valid_date, threshold) DO NOTHING
+        INSERT INTO hail_swaths (features, product, valid_date, start_time, end_time, source_files)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (valid_date) DO NOTHING
     """
 
     with conn.cursor() as cur:
-        for threshold, threshold_features in by_threshold.items():
-            cur.execute(sql, (
-                json.dumps(threshold_features),
-                threshold,
-                sample["product"],
-                valid_date,
-                sample["start_time"],
-                sample["end_time"],
-                sample["source_files"],
-            ))
+        cur.execute(sql, (
+            json.dumps(features),
+            sample["product"],
+            valid_date,
+            sample["start_time"],
+            sample["end_time"],
+            sample["source_files"],
+        ))
 
     conn.commit()
     logger.info(
-        "Inserted %d threshold rows for %s (%d total polygons)",
-        len(by_threshold), valid_date, len(features),
+        "Inserted 1 row for %s (%d total polygons across all thresholds)",
+        valid_date, len(features),
     )
-    return len(by_threshold)
+    return 1
 
 
 def get_swaths(
@@ -149,37 +139,29 @@ def get_swaths(
         conn: An open psycopg2 connection.
         valid_date: Date to query, e.g. "2024-05-22".
         thresholds: Optional list of threshold values to filter by (e.g. [0.75, 1.0]).
-                    If None, all thresholds for that date are returned.
+                    If None, all polygons for that date are returned.
         bbox: Optional bounding box (minLon, minLat, maxLon, maxLat).
               If provided, polygons are clipped to that box using Shapely.
 
     Returns:
         GeoJSON FeatureCollection dict.
     """
-    conditions = ["valid_date = %s"]
-    params: list = [valid_date]
-
-    if thresholds:
-        placeholders = ", ".join(["%s"] * len(thresholds))
-        conditions.append(f"threshold IN ({placeholders})")
-        params.extend(thresholds)
-
-    sql = f"""
-        SELECT features
-        FROM hail_swaths
-        WHERE {" AND ".join(conditions)}
-        ORDER BY threshold DESC
-    """
-
     with conn.cursor() as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
+        cur.execute(
+            "SELECT features FROM hail_swaths WHERE valid_date = %s",
+            (valid_date,),
+        )
+        row = cur.fetchone()
 
-    # Each row contains a list of GeoJSON features for one threshold.
-    # Flatten all rows into a single features list.
-    all_features = []
-    for (features_data,) in rows:
-        all_features.extend(features_data)
+    if row is None:
+        return {"type": "FeatureCollection", "features": []}
+
+    all_features = row[0]
+
+    # Filter by threshold in Python if specific thresholds were requested
+    if thresholds:
+        threshold_set = set(thresholds)
+        all_features = [f for f in all_features if f["properties"]["threshold"] in threshold_set]
 
     if bbox is not None:
         all_features = _clip_features_to_bbox(all_features, bbox)

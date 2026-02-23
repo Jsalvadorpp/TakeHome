@@ -4,8 +4,6 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import maplibregl from "maplibre-gl";
 import { SATELLITE_STYLE } from "@/lib/map-style";
 import {
-  DEFAULT_START,
-  DEFAULT_END,
   THRESHOLDS,
   THRESHOLD_MAP,
   ROAD_LAYER_IDS,
@@ -29,6 +27,36 @@ export default function Home() {
   const [visibleLocations, setVisibleLocations] = useState<HailLocation[]>([]);
   const [sidebarTab, setSidebarTab] = useState<"controls" | "locations">("locations");
   const [locationNames, setLocationNames] = useState<Record<number, string>>({});
+  const [selectedDate, setSelectedDate] = useState("2024-05-22");
+
+  // Convert a date string (YYYY-MM-DD) to the start/end times the API expects
+  function dateToWindow(date: string) {
+    return {
+      start: `${date}T00:00:00Z`,
+      end: `${date}T23:59:59Z`,
+    };
+  }
+
+  // Remove all swath layers and sources from the map so we can load a new date
+  function clearSwathLayers(mapInstance: maplibregl.Map) {
+    for (const t of THRESHOLDS) {
+      const layerId = `swath-${t.value}-fill`;
+      const sourceId = `swath-${t.value}`;
+      if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId);
+      if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId);
+    }
+  }
+
+  async function handleDateChange(date: string) {
+    setSelectedDate(date);
+    const map = mapRef.current;
+    if (!map) return;
+    clearSwathLayers(map);
+    setAllLocations([]);
+    setLocationNames({});
+    setHiddenThresholds(new Set());
+    await fetchSwaths(map, date);
+  }
 
   function toggleRoads() {
     const map = mapRef.current;
@@ -106,7 +134,7 @@ export default function Home() {
 
     newMap.on("load", () => {
       mapRef.current = newMap;
-      fetchSwaths(newMap);
+      fetchSwaths(newMap, selectedDate);
     });
 
     return () => {
@@ -154,12 +182,13 @@ export default function Home() {
     };
   }, [updateVisibleLocations]);
 
-  async function fetchSwaths(mapInstance: maplibregl.Map) {
+  async function fetchSwaths(mapInstance: maplibregl.Map, date: string) {
     try {
       setLoading(true);
       setError(null);
 
-      const geojson = await fetchSwathsData(DEFAULT_START, DEFAULT_END);
+      const { start, end } = dateToWindow(date);
+      const geojson = await fetchSwathsData(start, end);
       addLayers(mapInstance, geojson);
     } catch (err) {
       setError(
@@ -263,9 +292,27 @@ export default function Home() {
           <div style={{ fontSize: 14, fontWeight: 600, color: "#222" }}>
             Hail Exposure Map
           </div>
-          <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-            MRMS MESH Swaths &middot; May 22, 2024
+          <div style={{ fontSize: 12, color: "#888", marginTop: 2, marginBottom: 10 }}>
+            MRMS MESH Swaths
           </div>
+          <input
+            type="date"
+            value={selectedDate}
+            max={new Date().toISOString().split("T")[0]}
+            onChange={(e) => {
+              if (e.target.value) handleDateChange(e.target.value);
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              fontSize: 13,
+              border: "1px solid #ddd",
+              borderRadius: 6,
+              color: "#333",
+              cursor: "pointer",
+              boxSizing: "border-box",
+            }}
+          />
         </div>
 
         {/* Tabs */}

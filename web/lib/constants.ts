@@ -8,10 +8,6 @@
 // API configuration
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// Default time window for the test event (May 22, 2024 severe hail outbreak)
-export const DEFAULT_START = "2024-05-22T00:00:00Z";
-export const DEFAULT_END = "2024-05-22T23:59:00Z";
-
 // Hail size thresholds with display properties
 export const THRESHOLDS = [
   { value: 2.0, color: "#BF360C", label: '2.00"', opacity: 0.7 },
