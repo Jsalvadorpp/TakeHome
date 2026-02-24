@@ -9,7 +9,12 @@ All polygons for all thresholds are stored together in a single JSONB array.
 Each polygon feature carries its own `threshold` property so we can still
 filter by threshold when reading.
 
-No PostGIS required. Geometry is stored as plain JSONB.
+Two geometry representations are stored side by side:
+- features (JSONB): the full GeoJSON array — used by the API to serve the web viewer
+- geometry (GEOMETRY): the union of all polygons as a PostGIS type — used by DBeaver
+  to render the swath on a map directly in the database viewer
+
+Requires PostGIS (provided by the postgis/postgis Docker image).
 Bounding box filtering is done in Python using Shapely.
 """
 
@@ -17,13 +22,14 @@ import json
 import logging
 
 from shapely.geometry import box, mapping, shape
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 logger = logging.getLogger(__name__)
 
 
 def create_tables(conn) -> None:
-    """Create the hail_swaths table and index if they don't already exist.
+    """Create the hail_swaths table and indexes if they don't already exist.
 
     Safe to call every time the app starts — uses IF NOT EXISTS so it only
     creates the table on the first run and does nothing on subsequent runs.
@@ -34,10 +40,14 @@ def create_tables(conn) -> None:
         conn: An open psycopg2 connection.
     """
     with conn.cursor() as cur:
+        # Enable PostGIS — available in the postgis/postgis Docker image
+        cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS hail_swaths (
                 id           SERIAL PRIMARY KEY,
                 features     JSONB        NOT NULL,  -- all polygons for all thresholds (flat JSON array)
+                geometry     GEOMETRY(Geometry, 4326),         -- union of all polygons as a PostGIS type (for DBeaver map view)
                 product      TEXT         NOT NULL,  -- MRMS product name
                 valid_date   DATE         NOT NULL,  -- calendar date this swath covers
                 start_time   TIMESTAMPTZ,
@@ -47,9 +57,19 @@ def create_tables(conn) -> None:
                 UNIQUE (valid_date)                  -- one row per date, no duplicates
             );
         """)
+        # Add geometry column if the table already existed without it
+        cur.execute("""
+            ALTER TABLE hail_swaths
+                ADD COLUMN IF NOT EXISTS geometry GEOMETRY(Geometry, 4326);
+        """)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS hail_swaths_date_idx
                 ON hail_swaths (valid_date);
+        """)
+        # Spatial index so PostGIS queries on the geometry column are fast
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS hail_swaths_geometry_idx
+                ON hail_swaths USING GIST (geometry);
         """)
     conn.commit()
     logger.info("Database tables ready")
@@ -79,6 +99,9 @@ def insert_swaths(conn, feature_collection: dict, valid_date: str) -> int:
     All polygons from all thresholds are stored as a single flat JSON array.
     Each polygon feature keeps its `threshold` property so it can be filtered later.
 
+    Also computes the union of all polygons and stores it as a PostGIS geometry
+    so DBeaver can render the swath on a map directly in the database viewer.
+
     Uses ON CONFLICT DO NOTHING so running it twice for the same date is safe.
 
     Args:
@@ -103,15 +126,26 @@ def insert_swaths(conn, feature_collection: dict, valid_date: str) -> int:
     # All features share the same metadata — grab it from the first feature
     sample = features[0]["properties"]
 
+    # Build a single PostGIS geometry (union of all polygons) so DBeaver can
+    # render the swath on a map directly in the database viewer.
+    geoms = []
+    for feature in features:
+        try:
+            geoms.append(make_valid(shape(feature["geometry"])))
+        except Exception:
+            pass
+    combined_wkt = unary_union(geoms).wkt if geoms else None
+
     sql = """
-        INSERT INTO hail_swaths (features, product, valid_date, start_time, end_time, source_files)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO hail_swaths (features, geometry, product, valid_date, start_time, end_time, source_files)
+        VALUES (%s, ST_SetSRID(ST_GeomFromText(%s), 4326), %s, %s, %s, %s, %s)
         ON CONFLICT (valid_date) DO NOTHING
     """
 
     with conn.cursor() as cur:
         cur.execute(sql, (
             json.dumps(features),
+            combined_wkt,
             sample["product"],
             valid_date,
             sample["start_time"],

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16
+    image: postgis/postgis:16-3.4  # Postgres 16 with PostGIS pre-installed
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: "1234"

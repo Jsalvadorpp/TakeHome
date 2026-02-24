@@ -4,13 +4,16 @@
 -- Usage:
 --   psql $DATABASE_URL -f db/schema.sql
 
--- One row per date. All polygons for all thresholds are stored together
--- in a single JSONB array. Each polygon feature carries its own `threshold`
--- property so the API can still filter by threshold when reading.
--- No PostGIS required.
+-- Requires PostGIS (provided by the postgis/postgis Docker image).
+CREATE EXTENSION IF NOT EXISTS postgis;
+
+-- One row per date. Two geometry representations stored side by side:
+--   features  (JSONB)    — full GeoJSON array used by the API
+--   geometry  (GEOMETRY) — union of all polygons as a PostGIS type for DBeaver map view
 CREATE TABLE IF NOT EXISTS hail_swaths (
     id           SERIAL PRIMARY KEY,
     features     JSONB        NOT NULL,              -- flat array of all GeoJSON polygons for this date
+    geometry     GEOMETRY(Geometry, 4326),                     -- union of all polygons (for DBeaver map visualization)
     product      TEXT         NOT NULL,              -- MRMS product (e.g. MESH_Max_1440min)
     valid_date   DATE         NOT NULL,              -- calendar date this swath covers
     start_time   TIMESTAMPTZ,                        -- start of the processing window
@@ -20,6 +23,10 @@ CREATE TABLE IF NOT EXISTS hail_swaths (
     UNIQUE (valid_date)                              -- one row per date, no duplicates
 );
 
--- Index for date lookups (the primary query pattern).
+-- Index for date lookups
 CREATE INDEX IF NOT EXISTS hail_swaths_date_idx
     ON hail_swaths (valid_date);
+
+-- Spatial index for geometry queries
+CREATE INDEX IF NOT EXISTS hail_swaths_geometry_idx
+    ON hail_swaths USING GIST (geometry);
