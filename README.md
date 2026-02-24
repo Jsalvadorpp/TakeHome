@@ -1,5 +1,7 @@
 # MRMS Hail Exposure Swath Prototype
 
+![coverage](https://img.shields.io/badge/coverage-86%25-green)
+
 Fetches public NOAA MRMS hail radar data, builds GeoJSON polygons showing where radar estimated hail of a given size, and serves them through a local API with a map viewer.
 
 > **Note:** This shows **hail exposure areas** based on radar estimates — not confirmed property damage.
@@ -92,6 +94,16 @@ Or with Docker:
 ```bash
 docker compose run --rm api pytest
 ```
+
+### Run Tests with Coverage
+
+```bash
+coverage run -m pytest
+coverage report -m
+```
+
+This prints a per-file coverage table and an overall percentage to the terminal.
+To update the badge in this README, replace the number in the `coverage-XX%25` part of the badge URL at the top of this file with the new percentage shown in the `TOTAL` line of the report.
 
 ### Run the Demo Script
 
