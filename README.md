@@ -1,6 +1,6 @@
 # MRMS Hail Exposure Swath Prototype
 
-![coverage](https://img.shields.io/badge/coverage-86%25-green)
+![coverage](https://img.shields.io/badge/coverage-87%25-green)
 
 Fetches public NOAA MRMS hail radar data, builds GeoJSON polygons showing where radar estimated hail of a given size, and serves them through a local API with a map viewer.
 
@@ -42,6 +42,8 @@ mrms-hail-swaths/
 │   └── main.py
 ├── scripts/           # CLI tools for batch operations
 │   └── ingester.py    # Backfills the last 5 years into Postgres
+├── background/        # Long-running background services
+│   └── daily_ingest_job.py  # Runs Transformer for yesterday every 24 hours
 ├── web/               # Next.js map viewer (MapLibre GL JS)
 ├── tests/             # Pytest test suite
 ├── cache/             # Downloaded MRMS files (not committed)
@@ -140,6 +142,38 @@ INFO scripts.ingester: [1/1] 2024-05-22 — done (47 features)
 
 Done — 1/1 days completed, 0 failed.
 ```
+
+### Run the Daily Ingest Job
+
+The Daily Ingest Job processes yesterday's MRMS data and stores it in Postgres. It runs continuously as a background service, repeating every 24 hours. The `daily-ingest` Docker service starts it automatically alongside the API.
+
+```bash
+# Start all services including the daily ingest job
+docker compose up
+```
+
+To run it manually for yesterday and exit (useful for testing):
+
+```bash
+# Run once and exit
+python -m background.daily_ingest_job --once
+
+# Or with Docker
+docker compose run --rm daily-ingest python -m background.daily_ingest_job --once
+```
+
+Expected output:
+
+```
+INFO background.daily_ingest_job: Daily ingest starting for 2024-05-22
+INFO pipeline.transformer: DB miss for 2024-05-22 — starting S3 pipeline
+INFO pipeline.transformer: Inserted swath data for 2024-05-22 into DB
+INFO background.daily_ingest_job: Daily ingest complete for 2024-05-22 — 47 features stored
+
+Done — 47 features stored for 2024-05-22.
+```
+
+---
 
 ### Run the Demo Script
 

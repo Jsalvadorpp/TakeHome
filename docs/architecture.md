@@ -22,6 +22,8 @@ The project has five main parts:
 
 The `scripts/` folder contains CLI tools that run the pipeline in batch — for example, the Ingester backfills the last 5 years of data into the database so the API can serve any date instantly.
 
+The `background/` folder contains long-running services. The Daily Ingest Job runs continuously as a Docker service, processing yesterday's data every 24 hours so the database is always up to date.
+
 ---
 
 ## Folder Structure
@@ -48,6 +50,10 @@ TakeHome/
 ├── scripts/                # Batch CLI tools
 │   ├── __init__.py
 │   └── ingester.py         # Ingester class — run Transformer for every day in a range
+│
+├── background/             # Long-running background services
+│   ├── __init__.py
+│   └── daily_ingest_job.py # DailyIngestJob — run Transformer for yesterday every 24 hours
 │
 ├── web/                    # Step 5: Browser-based map viewer
 │   └── app/
@@ -158,6 +164,35 @@ Done — 1825/1825 days completed, 0 failed.
 ```
 
 **Used by:** Operators running a one-time backfill or a scheduled nightly job.
+
+---
+
+### background/daily_ingest_job.py
+
+**What it does:** A long-running background service that processes yesterday's MRMS hail data every 24 hours. It runs as a Docker service (`daily-ingest`) alongside the API so the database is always one day behind at most.
+
+**How it works:**
+1. On startup, immediately runs Transformer for yesterday.
+2. Sleeps 24 hours.
+3. Runs again for the new yesterday.
+4. Repeats forever.
+
+If a day's data is already in the database, the Transformer skips it — so restarting the service is always safe.
+
+**Key class:** `DailyIngestJob`
+- `run_once()` — Processes yesterday and returns `{"date": "...", "feature_count": 47}`.
+- `start()` — Runs forever. Blocks the process. Designed for Docker.
+
+**Example:**
+```bash
+# Run once and exit (for testing)
+python -m background.daily_ingest_job --once
+
+# Run continuously (started automatically by docker compose up)
+python -m background.daily_ingest_job
+```
+
+**Used by:** The `daily-ingest` Docker service in `docker-compose.yml`.
 
 ---
 

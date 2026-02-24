@@ -23,5 +23,18 @@ services:
     depends_on:
       - db
 
+  daily-ingest:
+    build: .
+    # Run the daily ingest job in continuous mode (loops every 24 hours).
+    # Use --once to run for yesterday and exit instead of looping.
+    command: python -m background.daily_ingest_job
+    volumes:
+      - .:/app  # Mount entire project directory
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://postgres:1234@db:5432/postgres
+    depends_on:
+      - db
+
 volumes:
   pgdata:  # Named volume so database data survives docker-compose down
