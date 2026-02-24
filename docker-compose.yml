@@ -2,9 +2,11 @@ services:
   db:
     image: postgis/postgis:16-3.4  # Postgres 16 with PostGIS pre-installed
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "1234"
-      POSTGRES_DB: postgres
+      # These three vars initialize the database on first startup.
+      # Values are read from your .env file (never hardcoded here).
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"  # Expose so DBeaver can still connect via localhost:5432
     volumes:
@@ -16,10 +18,13 @@ services:
       - "8000:8000"
     volumes:
       - .:/app  # Mount entire project directory
-    env_file: .env
+    env_file: .env  # Passes all .env vars to the container (for any app settings)
     environment:
-      # The API container connects to the db service by its service name.
-      - DATABASE_URL=postgresql://postgres:1234@db:5432/postgres
+      # Override DATABASE_URL to use "db" — Docker's internal hostname for the db service.
+      # Outside Docker, the app reads DATABASE_URL=...localhost... from .env directly.
+      # In production, set POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB in your
+      # secrets manager and this line builds the correct URL automatically.
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       - db
 
@@ -32,7 +37,7 @@ services:
       - .:/app  # Mount entire project directory
     env_file: .env
     environment:
-      - DATABASE_URL=postgresql://postgres:1234@db:5432/postgres
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       - db
 

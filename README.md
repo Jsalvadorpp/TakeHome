@@ -55,11 +55,38 @@ mrms-hail-swaths/
 
 ---
 
+## Environment Configuration
+
+All credentials live in a `.env` file that is **gitignored** — no passwords are ever committed.
+
+```bash
+cp .env.example .env
+# then open .env and set POSTGRES_PASSWORD (and update DATABASE_URL to match)
+```
+
+| Variable | What it's for |
+|----------|--------------|
+| `POSTGRES_USER` | Postgres username (default: `postgres`) |
+| `POSTGRES_PASSWORD` | Postgres password — **change this** |
+| `POSTGRES_DB` | Postgres database name (default: `postgres`) |
+| `DATABASE_URL` | Full connection string, used when running Python **outside** Docker |
+
+**How `DATABASE_URL` is set in each context:**
+
+| Context | Source |
+|---------|--------|
+| Local without Docker | `.env` file loaded by `python-dotenv` — uses `localhost` as hostname |
+| Local with Docker | docker-compose builds it from `POSTGRES_*` vars — uses `db` as hostname |
+| Production | Set `POSTGRES_PASSWORD` in your secrets manager; docker-compose builds the URL automatically from it |
+
+---
+
 ## Quick Start
 
 ### Option 1: Docker
 
 ```bash
+cp .env.example .env   # edit POSTGRES_PASSWORD before running
 docker compose up
 ```
 
@@ -68,6 +95,7 @@ The API will be running at `http://localhost:8000`.
 ### Option 2: Local Python
 
 ```bash
+cp .env.example .env   # edit DATABASE_URL to use localhost
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
