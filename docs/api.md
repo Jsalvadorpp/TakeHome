@@ -37,7 +37,7 @@ Nothing else to it. If you get this response, the server is running.
 
 ### GET /swaths
 
-**What it does:** This is the main endpoint. It runs the entire data pipeline and returns hail swath polygons as GeoJSON.
+**What it does:** This is the main endpoint. It returns hail swath polygons as GeoJSON. On the first request for a given date it runs the full pipeline (S3 → decode → polygonize) and stores the result in Postgres. Every subsequent request for that date is served directly from the database — no S3 call needed.
 
 **Required parameters:**
 | Parameter | Example | What it means |
@@ -48,7 +48,7 @@ Nothing else to it. If you get this response, the server is running.
 **Optional parameters:**
 | Parameter | Default | What it means |
 |-----------|---------|---------------|
-| `thresholds` | `0.75,1.00,1.50,2.00` | Which hail sizes to generate polygons for (comma-separated, in inches) |
+| `thresholds` | `0.50,0.75,1.00,1.50,2.00` | Which hail sizes to generate polygons for (comma-separated, in inches) |
 | `bbox` | *(none — full CONUS)* | Only return polygons within this rectangle: `minLon,minLat,maxLon,maxLat` |
 | `simplify` | `0.005` | How much to smooth polygon edges (higher = smoother but less accurate) |
 
@@ -75,10 +75,10 @@ curl "http://localhost:8000/swaths?start_time=2024-05-22T20:00:00Z&end_time=2024
       },
       "properties": {
         "threshold": 1.0,
-        "product": "MESH_Max_60min",
-        "start_time": "2024-05-22T20:00:00Z",
-        "end_time": "2024-05-22T22:00:00Z",
-        "source_files": ["file1.grib2", "file2.grib2"],
+        "product": "MESH_Max_1440min",
+        "start_time": "2024-05-22T00:00:00Z",
+        "end_time": "2024-05-23T00:00:00Z",
+        "source_files": ["MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2"],
         "created_at": "2024-05-22T23:00:00Z"
       }
     },
@@ -88,8 +88,8 @@ curl "http://localhost:8000/swaths?start_time=2024-05-22T20:00:00Z&end_time=2024
 ```
 
 **How long does it take?**
-- First request: ~8–10 seconds (downloads and processes radar files)
-- Repeat request with same parameters: instant (cached in memory)
+- First request for a date: ~30–120 seconds (downloads from S3, decodes GRIB2, polygonizes, stores in Postgres)
+- Any later request for the same date: instant (served from Postgres, no S3 call)
 
 ---
 
@@ -126,9 +126,11 @@ Example error response:
 
 ## Caching
 
-The API caches results in memory. If you make the same request twice (same start time, end time, thresholds, bbox, and simplify), the second request returns instantly without re-running the pipeline.
+The API uses Postgres as its cache. The first time a date is requested, the full pipeline runs (S3 → decode → polygonize) and the result is stored in the `hail_swaths` table — one row per calendar date, containing all five threshold polygons for the full CONUS grid.
 
-The cache resets when you restart the server. There is no cache expiration — results stay cached until the server stops.
+Every subsequent request for that date — regardless of which thresholds or bounding box the user asks for — is served from that one DB row. The threshold and bbox filtering happens in Python, not SQL, so no data is ever re-fetched or re-processed.
+
+The cache survives server restarts (it lives in Postgres, not in memory). To pre-populate it for multiple dates at once, use the Ingester script.
 
 ---
 

@@ -30,16 +30,19 @@ A polygon is just a shape with straight edges (like drawing a shape by connectin
 
 ### Threshold
 
-A cutoff value. When we say "threshold = 1.00 inch," we mean "show me everywhere the radar estimated hail of 1 inch or larger." The project uses four thresholds:
+A cutoff value. When we say "threshold = 1.00 inch," we mean "show me everywhere the radar estimated hail of 1 inch or larger." The project uses five thresholds:
 
-- **0.75"** — Small hail (about the size of a penny)
+- **0.50"** — Pea-sized hail (minimum detectable, broadest area)
+- **0.75"** — Marble-sized hail (about the size of a penny)
 - **1.00"** — Quarter-sized hail
 - **1.50"** — Golf ball-sized hail
 - **2.00"** — Hen egg-sized hail
 
 ### Compositing
 
-Combining multiple snapshots into one. The radar takes a new picture every 2 minutes. If you want to see the full hail swath from 8pm to 10pm, you need to combine all those snapshots together. We do this by keeping the **maximum** value at each location — if one snapshot says 1 inch and another says 2 inches at the same spot, we keep 2 inches.
+Combining multiple snapshots into one by keeping the **maximum** value at each location — if one snapshot says 1 inch and another says 2 inches at the same spot, we keep 2 inches.
+
+The code supports compositing via `composite_max()`, but in practice it is not needed: we use the `MESH_Max_1440min` product, which already contains the 24-hour maximum at every grid cell. The last file of a day is therefore the complete swath on its own.
 
 ---
 
@@ -63,7 +66,7 @@ Example of what a GeoJSON feature looks like:
   },
   "properties": {
     "threshold": 1.0,
-    "product": "MESH_Max_60min"
+    "product": "MESH_Max_1440min"
   }
 }
 ```

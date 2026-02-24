@@ -166,14 +166,16 @@ Done — 1825/1825 days completed, 0 failed.
 **What it does:** Runs a web server (using FastAPI) that accepts HTTP requests and returns hail polygon data.
 
 **How it works:** When someone requests `/swaths?start_time=...&end_time=...`, it:
-1. Calls `list_files()` to find what radar files exist for that time window
-2. Samples them down (one per hour is enough since files overlap)
-3. Calls `fetch_file()` to download each one
-4. Calls `decode_grib2()` to read each file
-5. Calls `composite_max()` to combine them
-6. Calls `grid_to_swaths()` to create polygons
-7. Caches the result in memory so the next request is instant
-8. Returns the GeoJSON to the caller
+
+1. Parses and validates the parameters (time, thresholds, bbox)
+2. **Checks Postgres** — if a row already exists for that calendar date, it filters by threshold + bbox in Python and returns immediately (no S3 call)
+3. If no DB row exists yet, it runs the full pipeline:
+   - Calls `list_files()` to find MRMS files on S3 for that day
+   - Downloads **only the last file** (the 1440min product means the last file already contains the full-day max)
+   - Calls `decode_grib2()` to read the file
+   - Calls `grid_to_swaths()` at **all five thresholds** with **no bbox** (stores the full CONUS data)
+   - Inserts one row into `hail_swaths` via `insert_swaths()`
+   - Returns the result filtered to the user's requested thresholds and bbox
 
 **Used by:** The web viewer (via HTTP) and anyone using `curl`
 
@@ -213,6 +215,8 @@ docker compose run --rm api python demo.py \
 
 ## Data Flow Diagram
 
+### First request for a date (DB miss)
+
 ```
 User opens http://localhost:3000
         │
@@ -221,22 +225,36 @@ User opens http://localhost:3000
   "Give me hail polygons for May 22, 2024"
         │
         ▼  (HTTP request)
-  api/main.py
-  /swaths?start_time=2024-05-22T20:00:00Z&end_time=2024-05-22T22:00:00Z
+  api/routers/swaths.py
+  /swaths?start_time=2024-05-22T00:00:00Z&end_time=2024-05-23T00:00:00Z
         │
-        ├──▶ ingest/fetcher.py → list_files() → "There are 61 files"
-        │                                         (samples to 3)
+        ├──▶ db/repository.py → swaths_exist("2024-05-22") → False (not yet stored)
         │
-        ├──▶ ingest/fetcher.py → fetch_file() × 3 → Downloads to cache/
+        ├──▶ ingest/fetcher.py → list_files() → picks the last file of the day
         │
-        ├──▶ processing/decoder.py → decode_grib2() × 3 → 3 number grids
+        ├──▶ ingest/fetcher.py → fetch_file() → Downloads 1 file to cache/
         │
-        ├──▶ processing/polygonize.py → composite_max() → 1 combined grid
+        ├──▶ processing/decoder.py → decode_grib2() → 1 number grid (mm → inches)
         │
-        ├──▶ processing/polygonize.py → grid_to_swaths() → GeoJSON with 376 polygons
+        ├──▶ processing/polygonize.py → grid_to_swaths() → GeoJSON (all 5 thresholds)
         │
-        ▼  (HTTP response — JSON)
+        ├──▶ db/repository.py → insert_swaths() → 1 row stored in Postgres
+        │
+        ▼  (HTTP response — JSON filtered by user's thresholds + bbox)
   web/app/page.tsx
-  Draws 376 polygons on the satellite map
+  Draws polygons on the satellite map
   (colored by threshold: yellow, amber, orange, red)
+```
+
+### Every later request for the same date (DB hit)
+
+```
+  /swaths?start_time=2024-05-22T00:00:00Z&...
+        │
+        ├──▶ db/repository.py → swaths_exist("2024-05-22") → True
+        │
+        ├──▶ db/repository.py → get_swaths() → filters by threshold + bbox in Python
+        │
+        ▼  (instant response — no S3, no decoding)
+  web/app/page.tsx
 ```

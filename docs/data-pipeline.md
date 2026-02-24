@@ -6,25 +6,25 @@ A step-by-step walkthrough of how raw radar data becomes colored shapes on a map
 
 ## The Input: What NOAA Gives Us
 
-NOAA runs hundreds of weather radars across the US. Every 2 minutes, they produce a file that covers the entire continental US (CONUS). Each file is a grid — imagine a giant spreadsheet laid over a map — where each cell contains a number: **the estimated maximum hail size at that location over the past 60 minutes**, in millimeters.
+NOAA runs hundreds of weather radars across the US. Every 2 minutes, they produce a file that covers the entire continental US (CONUS). Each file is a grid — imagine a giant spreadsheet laid over a map — where each cell contains a number: **the estimated maximum hail size at that location over the past 24 hours (1440 minutes)**, in millimeters.
 
 The files live in a public Amazon S3 bucket:
 ```
-s3://noaa-mrms-pds/CONUS/MESH_Max_60min_00.50/20240522/
+s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/20240522/
 ```
 
 Each file is named like:
 ```
-MRMS_MESH_Max_60min_00.50_20240522-200000.grib2.gz
-                          ^^^^^^^^ ^^^^^^
-                          date     time (UTC)
+MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2.gz
+                            ^^^^^^^^ ^^^^^^
+                            date     time (UTC)
 ```
 
 The grid is **3500 rows by 7000 columns** — about 24.5 million cells. Each cell covers roughly 1 km x 1 km on the ground.
 
 ---
 
-## Why `MESH_Max_60min_00.50`?
+## Why `MESH_Max_1440min_00.50`?
 
 NOAA publishes several MESH products with different time windows. Here are the options we had:
 
@@ -32,18 +32,16 @@ NOAA publishes several MESH products with different time windows. Here are the o
 |---------|-----------------|
 | `MESH` | A single instant snapshot — "hail right now" |
 | `MESH_Max_30min` | Biggest hail at each spot over the last 30 minutes |
-| **`MESH_Max_60min`** | **Biggest hail at each spot over the last 60 minutes** |
+| `MESH_Max_60min` | Biggest hail at each spot over the last 60 minutes |
 | `MESH_Max_120min` | Biggest hail over the last 2 hours |
 | `MESH_Max_240min` | Biggest hail over the last 4 hours |
-| ... up to `1440min` | Biggest hail over the last 24 hours |
+| **`MESH_Max_1440min`** | **Biggest hail over the last 24 hours (one full day)** |
 
-We picked the 60-minute version for three reasons:
+We picked the 1440-minute (24-hour) version for two reasons:
 
-1. **It does the hard work for us.** Each file already contains the maximum hail size over the past hour. If we used the instantaneous `MESH` snapshots instead, we would need to write extra code to stack dozens of snapshots together ourselves. The 60-minute product gives us a ready-made "swath" for free.
+1. **One file covers an entire day.** Each file already contains the maximum hail size over the past 24 hours. This means the last file of any calendar day is also its complete swath — we never need to download multiple files and combine them ourselves. The 24-hour product gives us a ready-made full-day swath for free.
 
-2. **60 minutes is the right zoom level.** The 30-minute window is too short — it might miss parts of a storm that lingers in an area. The 120-minute or 240-minute windows are too long — they blur multiple separate storms together, making it hard to tell where one storm ended and another began. 60 minutes matches how long a typical hail-producing supercell affects a given area.
-
-3. **We don't need to download every file.** Files arrive every 2 minutes (~720 per day), but since each one already covers a 60-minute window, consecutive files overlap heavily. To cover a multi-hour event, we only need to grab one file per hour — not all 720.
+2. **Perfect for daily backfill.** Since we store one swath per calendar day in the database, the 1440-minute product maps cleanly to our data model. The Ingester processes one day at a time, and a single GRIB2 file is all it needs.
 
 The `_00.50` at the end means "0.50 km above ground level." This is the standard level for hail estimates that represent what actually reaches the ground (as opposed to hail higher up in the atmosphere that might melt before landing).
 
@@ -53,11 +51,11 @@ The `_00.50` at the end means "0.50 km above ground level." This is the standard
 
 **Code:** `ingest/fetcher.py` → `list_files()`
 
-Given a time window (e.g., May 22 2024, 8pm–10pm UTC), we ask S3 "what files do you have?" S3 returns a list of filenames. We parse the timestamp from each filename and keep only the ones within our window.
+Given a time window (e.g., May 22 2024, midnight to midnight UTC), we ask S3 "what files do you have?" S3 returns a list of filenames. We parse the timestamp from each filename and keep only the ones within our window.
 
-For a 2-hour window, there are about 61 files (one every 2 minutes).
+For a full calendar day, there are up to 720 files (one every 2 minutes).
 
-**Why not use all 61?** Since each file already contains the maximum hail over the past 60 minutes, there's a lot of overlap. A file from 9:00pm already includes data from 8:00pm–9:00pm. So we only need ~1 file per hour. We sample every 30th file, which gives us about 3 files for a 2-hour window.
+**Why only use the last file?** Since `MESH_Max_1440min` already contains the maximum hail across the entire previous 24 hours, the last file of the day is also the complete swath. Any earlier file is a subset of it. We only ever download and process that one last file — no compositing needed.
 
 ---
 
@@ -96,27 +94,13 @@ The output looks like:
 
 ---
 
-## Step 4: Composite (Combine Multiple Snapshots)
-
-**Code:** `processing/polygonize.py` → `composite_max()`
-
-If we have multiple files (e.g., 3 files for a 2-hour window), we combine them by keeping the **maximum** value at each grid cell. This builds the full swath — the complete trail of hail across the time period.
-
-```
-File 1 (8pm):  [0.0, 1.0, 0.5]      Result:  [0.0, 2.0, 1.5]
-File 2 (9pm):  [0.0, 2.0, 0.0]  →            (maximum at each cell)
-File 3 (10pm): [0.0, 0.5, 1.5]
-```
-
----
-
-## Step 5: Polygonize (Grid → Shapes)
+## Step 4: Polygonize (Grid → Shapes)
 
 **Code:** `processing/polygonize.py` → `grid_to_swaths()`
 
 This is the most complex step. For each threshold (0.75", 1.00", 1.50", 2.00"), we:
 
-### 5a. Create a Binary Mask
+### 4a. Create a Binary Mask
 
 Ask "is this cell's value >= the threshold?" for every cell. Result: a grid of true/false.
 
@@ -125,17 +109,17 @@ Hail grid:     [0.0, 1.2, 0.8, 2.1, 0.3]
 Threshold 1.0: [ no, YES, no,  YES, no ]
 ```
 
-### 5b. Clean Up Noise
+### 4b. Clean Up Noise
 
 The binary mask might have tiny isolated "yes" dots (radar noise) or small gaps in otherwise solid areas. We apply morphological cleanup:
 - **Closing** fills small holes (a "no" surrounded by "yes" becomes "yes")
 - **Opening** removes tiny specks (an isolated "yes" surrounded by "no" is removed)
 
-### 5c. Trace the Outlines
+### 4c. Trace the Outlines
 
 We use the `rasterio.features.shapes()` function to trace around the "yes" areas and create polygon shapes. This is like using the "magic wand" tool in Photoshop — it finds the boundaries of connected regions.
 
-### 5d. Validate and Simplify
+### 4d. Validate and Simplify
 
 The raw polygon edges follow the grid exactly, making them very jagged (staircase pattern). We:
 1. Run `make_valid()` to fix any broken geometry
@@ -143,36 +127,40 @@ The raw polygon edges follow the grid exactly, making them very jagged (staircas
 3. Run `make_valid()` again (simplification can sometimes break geometry)
 4. Remove tiny polygons that are too small to matter
 
-### 5e. Clip to Bounding Box (Optional)
+### 4e. Clip to Bounding Box (Optional)
 
 If the user specified a bounding box (a rectangular area of interest), we cut the polygons to fit within that box.
 
-### 5f. Attach Properties
+### 4f. Attach Properties
 
 Each polygon gets metadata:
 ```json
 {
   "threshold": 1.0,
-  "product": "MESH_Max_60min",
-  "start_time": "2024-05-22T20:00:00Z",
-  "end_time": "2024-05-22T22:00:00Z",
-  "source_files": ["file1.grib2", "file2.grib2"],
+  "product": "MESH_Max_1440min",
+  "start_time": "2024-05-22T00:00:00Z",
+  "end_time": "2024-05-23T00:00:00Z",
+  "source_files": ["MRMS_MESH_Max_1440min_00.50_20240522-200000.grib2"],
   "created_at": "2024-05-22T23:00:00Z"
 }
 ```
 
 ---
 
-## The Output: GeoJSON FeatureCollection
+## The Output: GeoJSON Stored in Postgres
 
-The final result is a GeoJSON file (or HTTP response) containing all the polygons for all thresholds. For our test event (May 22, 2024, 8pm–10pm), this is about 376 polygons:
+The final result is a GeoJSON FeatureCollection containing all the polygons for all thresholds. This is stored as a single row in the `hail_swaths` Postgres table (one row per calendar date).
 
-- 223 polygons for >= 0.75" (small hail — largest area)
-- 111 polygons for >= 1.00"
-- 30 polygons for >= 1.50"
-- 12 polygons for >= 2.00" (severe hail — smallest area)
+For our test event (May 22, 2024, full day), the polygon counts at each threshold are roughly:
+
+- Many polygons for >= 0.75" (small hail — largest area)
+- Fewer for >= 1.00"
+- Fewer still for >= 1.50"
+- The fewest for >= 2.00" (severe hail — smallest area)
 
 The higher the threshold, the fewer and smaller the polygons — which makes sense, because less area gets hit by very large hail.
+
+When the API serves a request for this date, it queries the DB row and filters to only the thresholds and bounding box the user asked for. No S3 download or GRIB2 decoding happens on the second request.
 
 ---
 
@@ -220,33 +208,33 @@ After the Ingester finishes, any API request for a date in that range is served 
 ```
 NOAA S3 Bucket
     │
-    │  .grib2.gz files (compressed radar grids)
+    │  one .grib2.gz file (last file of the day — already a 24h rolling max)
     ▼
 ┌──────────────┐
 │   Download   │  fetch_file()
-│   & Cache    │  ~80-230 KB each
+│   & Cache    │  ~80-230 KB
 └──────┬───────┘
-       │  .grib2 files (decompressed)
+       │  .grib2 file (decompressed)
        ▼
 ┌──────────────┐
 │   Decode     │  decode_grib2()
 │   GRIB2      │  mm → inches, fix coordinates
 └──────┬───────┘
-       │  numpy arrays (3500 x 7000 grids of numbers)
-       ▼
-┌──────────────┐
-│  Composite   │  composite_max()
-│  (merge)     │  keep highest value per cell
-└──────┬───────┘
-       │  one combined numpy array
+       │  numpy array (3500 x 7000 grid of numbers)
        ▼
 ┌──────────────┐
 │  Polygonize  │  grid_to_swaths()
 │  per         │  mask → cleanup → trace → simplify
-│  threshold   │
+│  threshold   │  (all 5 thresholds, full CONUS, no bbox clip)
 └──────┬───────┘
        │  GeoJSON FeatureCollection
        ▼
-  376 polygons with properties
-  ready for the map or a .geojson file
+┌──────────────┐
+│   Postgres   │  insert_swaths()
+│   (one row   │  one row per calendar date
+│   per day)   │
+└──────┬───────┘
+       │  API queries DB, filters by threshold + bbox
+       ▼
+  Polygons served to the map or returned as JSON
 ```
