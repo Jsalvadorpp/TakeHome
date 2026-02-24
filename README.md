@@ -36,8 +36,12 @@ mrms-hail-swaths/
 ├── processing/        # Decodes GRIB2, applies thresholds, creates polygons
 │   ├── decoder.py
 │   └── polygonize.py
+├── pipeline/          # Orchestrates ingest + processing + DB for one day
+│   └── transformer.py
 ├── api/               # FastAPI server with swath endpoints
 │   └── main.py
+├── scripts/           # CLI tools for batch operations
+│   └── ingester.py    # Backfills the last 5 years into Postgres
 ├── web/               # Next.js map viewer (MapLibre GL JS)
 ├── tests/             # Pytest test suite
 ├── cache/             # Downloaded MRMS files (not committed)
@@ -104,6 +108,38 @@ coverage report -m
 
 This prints a per-file coverage table and an overall percentage to the terminal.
 To update the badge in this README, replace the number in the `coverage-XX%25` part of the badge URL at the top of this file with the new percentage shown in the `TOTAL` line of the report.
+
+### Run the Ingester (Backfill Last 5 Years)
+
+The Ingester processes every day in a date range and stores results in Postgres. Days already in the database are skipped automatically, so it is safe to re-run.
+
+```bash
+# Backfill the last 5 years (default)
+python scripts/ingester.py
+
+# Custom date range
+python scripts/ingester.py --start 2024-01-01 --end 2024-12-31
+
+# Single day
+python scripts/ingester.py --start 2024-05-22 --end 2024-05-22
+```
+
+Or with Docker:
+
+```bash
+docker compose run --rm api python scripts/ingester.py
+```
+
+Expected output:
+
+```
+INFO pipeline.transformer: DB miss for 2024-05-22 — starting S3 pipeline
+INFO pipeline.transformer: Listed 1 S3 files in 1.2s
+INFO pipeline.transformer: Inserted swath data for 2024-05-22 into DB
+INFO scripts.ingester: [1/1] 2024-05-22 — done (47 features)
+
+Done — 1/1 days completed, 0 failed.
+```
 
 ### Run the Demo Script
 

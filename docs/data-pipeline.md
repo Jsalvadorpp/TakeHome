@@ -176,6 +176,45 @@ The higher the threshold, the fewer and smaller the polygons — which makes sen
 
 ---
 
+## Batch Ingestion: Backfilling Historical Data
+
+The steps above describe what happens **on demand** when the API receives a request. For historical data (e.g. the last 5 years), we run the same pipeline in batch using two classes:
+
+### Transformer (`pipeline/transformer.py`)
+
+Handles a single calendar day. Given a date like `"2024-05-22"`, it:
+1. Checks the database — if the date is already stored, returns immediately (no S3 call)
+2. Runs steps 1–6 above for that full day
+3. Stores the result in Postgres (one row per date)
+4. Deletes the local GRIB2 cache file
+
+```python
+from pipeline.transformer import Transformer
+
+t = Transformer()
+fc = t.run("2024-05-22")
+print(f"{len(fc['features'])} polygons stored")
+```
+
+### Ingester (`scripts/ingester.py`)
+
+Calls Transformer for every day in a date range. The default range is the last 5 years. Days already in the database are automatically skipped, so re-running is safe.
+
+```bash
+# Backfill the last 5 years
+python scripts/ingester.py
+
+# Custom range
+python scripts/ingester.py --start 2024-01-01 --end 2024-12-31
+
+# Single day
+python scripts/ingester.py --start 2024-05-22 --end 2024-05-22
+```
+
+After the Ingester finishes, any API request for a date in that range is served instantly from Postgres — no S3 call, no GRIB2 decoding.
+
+---
+
 ## Visual Summary
 
 ```

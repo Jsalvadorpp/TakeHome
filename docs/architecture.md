@@ -6,18 +6,21 @@ How the project is organized, what each file does, and how they connect.
 
 ## Big Picture
 
-The project has four main parts:
+The project has five main parts:
 
 ```
-[NOAA S3 Bucket]  →  [Ingest]  →  [Processing]  →  [API]  →  [Web Viewer]
-   (radar files)     (download)   (convert to      (serve     (show on
-                                   polygons)        as JSON)    a map)
+[NOAA S3 Bucket]  →  [Ingest]  →  [Processing]  →  [Pipeline]  →  [API]  →  [Web Viewer]
+   (radar files)     (download)   (convert to        (store in     (serve     (show on
+                                   polygons)          Postgres)     as JSON)    a map)
 ```
 
 1. **Ingest** downloads radar files from NOAA's public servers
 2. **Processing** reads those files and turns them into map shapes
-3. **API** runs a web server that triggers the pipeline and returns results
-4. **Web Viewer** displays the results on an interactive map
+3. **Pipeline** orchestrates ingest + processing and stores results in Postgres
+4. **API** runs a web server that queries the database and returns results
+5. **Web Viewer** displays the results on an interactive map
+
+The `scripts/` folder contains CLI tools that run the pipeline in batch — for example, the Ingester backfills the last 5 years of data into the database so the API can serve any date instantly.
 
 ---
 
@@ -34,11 +37,19 @@ TakeHome/
 │   ├── decoder.py          # Read GRIB2 files into number grids
 │   └── polygonize.py       # Turn number grids into GeoJSON polygons
 │
-├── api/                    # Step 3: Serve results over HTTP
+├── pipeline/               # Step 3: Orchestrate ingest + processing + DB for one day
+│   ├── __init__.py
+│   └── transformer.py      # Transformer class — fetch one day, store in Postgres
+│
+├── api/                    # Step 4: Serve results over HTTP
 │   ├── __init__.py
 │   └── main.py             # FastAPI server with endpoints
 │
-├── web/                    # Step 4: Browser-based map viewer
+├── scripts/                # Batch CLI tools
+│   ├── __init__.py
+│   └── ingester.py         # Ingester class — run Transformer for every day in a range
+│
+├── web/                    # Step 5: Browser-based map viewer
 │   └── app/
 │       ├── page.tsx         # The main (and only) page — the map
 │       ├── layout.tsx       # Page wrapper (title, fonts)
@@ -49,6 +60,8 @@ TakeHome/
 │   │   └── test_fetcher.py
 │   ├── processing/
 │   │   └── test_polygonize.py
+│   ├── pipeline/
+│   │   └── test_transformer.py
 │   └── api/
 │       └── test_main.py
 │
@@ -108,6 +121,43 @@ TakeHome/
 - `composite_max(arrays)` — Combines multiple grids into one by keeping the highest value at each pixel. Used when we have multiple radar snapshots and want one combined picture.
 
 **Used by:** `api/main.py` and `demo.py`
+
+---
+
+### pipeline/transformer.py
+
+**What it does:** Ties ingest and processing together for a single calendar day and stores the result in Postgres. This is the single unit of work that both the API (on demand) and the Ingester (batch) rely on.
+
+**How it works:** Given a date string like `"2024-05-22"`, it:
+1. Checks whether that date is already in the database — if yes, returns immediately (no S3 call)
+2. Lists and downloads the last MRMS file for that day from S3
+3. Decodes the GRIB2 file into a hail-size grid
+4. Polygonizes at all standard thresholds for the full CONUS grid (no bounding box)
+5. Inserts one row into the `hail_swaths` table
+6. Deletes the local GRIB2 file (data is now safely in the DB)
+
+**Key class:** `Transformer` — instantiate once and call `run(date_str)` for each day.
+
+**Used by:** `api/routers/swaths.py` and `scripts/ingester.py`
+
+---
+
+### scripts/ingester.py
+
+**What it does:** Runs the Transformer for every day in a date range. The default range is the last 5 years. Days already in the database are skipped automatically, so re-running is safe.
+
+**Key class:** `Ingester` — call `run()` with optional `start_date` and `end_date` arguments.
+
+**Example output:**
+```
+[1/1825] Processing 2019-02-25 ...
+[1/1825] 2019-02-25 — done (0 features)   ← no hail that day, stored as empty
+[2/1825] Processing 2019-02-26 ...
+...
+Done — 1825/1825 days completed, 0 failed.
+```
+
+**Used by:** Operators running a one-time backfill or a scheduled nightly job.
 
 ---
 
