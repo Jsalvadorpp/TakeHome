@@ -66,7 +66,12 @@ def test_swaths_invalid_bbox():
 
 
 def test_swaths_no_data_returns_404():
-    with patch("api.routers.swaths.list_files", return_value=[]):
+    # _build_swaths calls get_connection() and swaths_exist() before list_files(),
+    # so we must mock all three to prevent a real DB connection attempt.
+    mock_conn = MagicMock()
+    with patch("api.routers.swaths.get_connection", return_value=mock_conn), \
+         patch("api.routers.swaths.swaths_exist", return_value=False), \
+         patch("api.routers.swaths.list_files", return_value=[]):
         response = client.get("/swaths", params={
             "start_time": "2024-01-01T00:00:00Z",
             "end_time": "2024-01-01T01:00:00Z",
