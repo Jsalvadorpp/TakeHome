@@ -1,4 +1,4 @@
-import maplibregl from "maplibre-gl";
+import mapboxgl from "mapbox-gl";
 
 /**
  * Compute the centroid of a GeoJSON geometry by averaging all coordinates.
@@ -32,10 +32,10 @@ export function getCentroid(geometry: any): [number, number] {
 /**
  * Compute the bounding box of a GeoJSON geometry.
  *
- * Returns a MapLibre LngLatBounds object containing all coordinates.
+ * Returns a Mapbox LngLatBounds object containing all coordinates.
  */
-export function getGeometryBounds(geometry: any): maplibregl.LngLatBounds {
-  const bounds = new maplibregl.LngLatBounds();
+export function getGeometryBounds(geometry: any): mapboxgl.LngLatBounds {
+  const bounds = new mapboxgl.LngLatBounds();
   addCoordsToBounds(geometry.coordinates, bounds);
   return bounds;
 }
@@ -47,7 +47,7 @@ export function getGeometryBounds(geometry: any): maplibregl.LngLatBounds {
  */
 export function addCoordsToBounds(
   coords: any,
-  bounds: maplibregl.LngLatBounds
+  bounds: mapboxgl.LngLatBounds
 ): void {
   if (typeof coords[0] === "number") {
     bounds.extend(coords as [number, number]);

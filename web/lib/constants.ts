@@ -21,5 +21,3 @@ export const THRESHOLDS = [
 export const THRESHOLD_MAP: Record<number, typeof THRESHOLDS[0]> = {};
 for (const t of THRESHOLDS) THRESHOLD_MAP[t.value] = t;
 
-// Map layer IDs for roads overlay
-export const ROAD_LAYER_IDS = ["highway-casing", "highway-fill", "highway-label"];

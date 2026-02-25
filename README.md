@@ -44,7 +44,7 @@ mrms-hail-swaths/
 │   └── ingester.py    # Backfills the last 5 years into Postgres
 ├── background/        # Long-running background services
 │   └── daily_ingest_job.py  # Runs Transformer for yesterday every 24 hours
-├── web/               # Next.js map viewer (MapLibre GL JS)
+├── web/               # Next.js map viewer (Mapbox GL JS)
 ├── tests/             # Pytest test suite
 ├── cache/             # Downloaded MRMS files (not committed)
 ├── demo.py            # CLI script to generate a .geojson file
@@ -57,12 +57,14 @@ mrms-hail-swaths/
 
 ## Environment Configuration
 
-All credentials live in a `.env` file that is **gitignored** — no passwords are ever committed.
+Credentials and tokens are split across two gitignored files — no secrets are ever committed.
 
 ```bash
 cp .env.example .env
-# then open .env and set POSTGRES_PASSWORD (and update DATABASE_URL to match)
+# then open .env and fill in POSTGRES_PASSWORD and NEXT_PUBLIC_MAPBOX_TOKEN
 ```
+
+**Root `.env`** — used by Python, Docker, and docker-compose:
 
 | Variable | What it's for |
 |----------|--------------|
@@ -70,6 +72,16 @@ cp .env.example .env
 | `POSTGRES_PASSWORD` | Postgres password — **change this** |
 | `POSTGRES_DB` | Postgres database name (default: `postgres`) |
 | `DATABASE_URL` | Full connection string, used when running Python **outside** Docker |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | Your Mapbox public token (get one at mapbox.com) |
+
+**`web/.env.local`** — used by Next.js only (Next.js only reads env files from its own directory, not the project root):
+
+```bash
+# web/.env.local — copy your token here so Next.js can read it
+NEXT_PUBLIC_MAPBOX_TOKEN=pk.your_token_here
+```
+
+> Next.js automatically gitignores `web/.env.local`, so it will never be committed.
 
 **How `DATABASE_URL` is set in each context:**
 
@@ -108,6 +120,15 @@ uvicorn api.main:app --reload
 ```
 
 ### Run the Map Viewer
+
+The map viewer needs a Mapbox token. Next.js reads env files from the `web/` directory — not the project root — so you need a separate `web/.env.local`:
+
+```bash
+# Create web/.env.local with your Mapbox token (this file is gitignored)
+echo "NEXT_PUBLIC_MAPBOX_TOKEN=pk.your_token_here" > web/.env.local
+```
+
+Then start the dev server:
 
 ```bash
 cd web

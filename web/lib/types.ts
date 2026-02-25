@@ -1,4 +1,4 @@
-import type maplibregl from "maplibre-gl";
+import type mapboxgl from "mapbox-gl";
 
 /**
  * A hail location represents a cluster of nearby hail polygons grouped together.
@@ -11,5 +11,5 @@ export interface HailLocation {
   lng: number;
   maxThreshold: number;
   thresholds: number[];
-  bounds: maplibregl.LngLatBounds;
+  bounds: mapboxgl.LngLatBounds;
 }

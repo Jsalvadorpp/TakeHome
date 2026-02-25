@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import maplibregl from "maplibre-gl";
-import { SATELLITE_STYLE } from "@/lib/map-style";
+import mapboxgl from "mapbox-gl";
 import {
   THRESHOLDS,
   THRESHOLD_MAP,
-  ROAD_LAYER_IDS,
 } from "@/lib/constants";
 import type { HailLocation } from "@/lib/types";
 import { addCoordsToBounds } from "@/lib/geometry";
@@ -15,9 +13,16 @@ import { formatTime } from "@/lib/formatting";
 import { reverseGeocode } from "@/lib/geocoding";
 import { fetchSwathsData } from "@/lib/api";
 
+// Set the Mapbox access token before any map is created.
+// The token is stored in the root .env file as NEXT_PUBLIC_MAPBOX_TOKEN.
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+
 export default function Home() {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+  // Road layer IDs are collected from the Mapbox style after it loads.
+  // We store them here so toggleRoads() knows which layers to show/hide.
+  const roadLayerIdsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [roadsVisible, setRoadsVisible] = useState(false);
@@ -43,7 +48,7 @@ export default function Home() {
   }
 
   // Remove all swath layers and sources from the map so we can load a new date
-  function clearSwathLayers(mapInstance: maplibregl.Map) {
+  function clearSwathLayers(mapInstance: mapboxgl.Map) {
     for (const t of THRESHOLDS) {
       const layerId = `swath-${t.value}-fill`;
       const sourceId = `swath-${t.value}`;
@@ -68,7 +73,7 @@ export default function Home() {
     if (!map) return;
     const newVisible = !roadsVisible;
     const visibility = newVisible ? "visible" : "none";
-    for (const id of ROAD_LAYER_IDS) {
+    for (const id of roadLayerIdsRef.current) {
       if (map.getLayer(id)) {
         map.setLayoutProperty(id, "visibility", visibility);
       }
@@ -120,7 +125,7 @@ export default function Home() {
 
     const bounds = map.getBounds();
     const visible = allLocations.filter((loc) =>
-      bounds.contains(new maplibregl.LngLat(loc.lng, loc.lat))
+      bounds.contains(new mapboxgl.LngLat(loc.lng, loc.lat))
     );
     setVisibleLocations(visible);
   }, [allLocations]);
@@ -128,16 +133,29 @@ export default function Home() {
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    const newMap = new maplibregl.Map({
+    const newMap = new mapboxgl.Map({
       container: mapContainer.current,
-      style: SATELLITE_STYLE,
+      style: "mapbox://styles/mapbox/satellite-streets-v12",
       center: [-98, 38],
       zoom: 5,
     });
 
-    newMap.addControl(new maplibregl.NavigationControl(), "top-right");
+    newMap.addControl(new mapboxgl.NavigationControl(), "top-right");
 
     newMap.on("load", () => {
+      // Collect all road layer IDs from the Mapbox style and hide them.
+      // This gives the "Show Roads" toggle a clean starting state (roads off).
+      const style = newMap.getStyle();
+      if (style?.layers) {
+        const roadIds = style.layers
+          .filter((layer: mapboxgl.AnyLayer) => layer.id.startsWith("road"))
+          .map((layer: mapboxgl.AnyLayer) => layer.id);
+        roadLayerIdsRef.current = roadIds;
+        for (const id of roadIds) {
+          newMap.setLayoutProperty(id, "visibility", "none");
+        }
+      }
+
       mapRef.current = newMap;
       fetchSwaths(newMap, selectedDate);
     });
@@ -187,7 +205,7 @@ export default function Home() {
     };
   }, [updateVisibleLocations]);
 
-  async function fetchSwaths(mapInstance: maplibregl.Map, date: string) {
+  async function fetchSwaths(mapInstance: mapboxgl.Map, date: string) {
     try {
       setLoading(true);
       setError(null);
@@ -204,14 +222,14 @@ export default function Home() {
     }
   }
 
-  function addLayers(mapInstance: maplibregl.Map, geojson: any) {
+  function addLayers(mapInstance: mapboxgl.Map, geojson: GeoJSON.FeatureCollection) {
     for (const threshold of THRESHOLDS) {
       const layerId = `swath-${threshold.value}`;
 
-      const filtered = {
+      const filtered: GeoJSON.FeatureCollection = {
         ...geojson,
         features: geojson.features.filter(
-          (f: any) => f.properties.threshold === threshold.value
+          (f) => (f.properties as Record<string, unknown>)["threshold"] === threshold.value
         ),
       };
 
@@ -222,6 +240,8 @@ export default function Home() {
         data: filtered,
       });
 
+      // Insert before "road-label" so swaths appear under road text but above satellite
+      const beforeId = mapInstance.getLayer("road-label") ? "road-label" : undefined;
       mapInstance.addLayer(
         {
           id: `${layerId}-fill`,
@@ -232,20 +252,20 @@ export default function Home() {
             "fill-opacity": opacity,
           },
         },
-        "highway-casing"
+        beforeId
       );
 
-      mapInstance.on("click", `${layerId}-fill`, (e) => {
+      mapInstance.on("click", `${layerId}-fill`, (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
         if (!e.features || e.features.length === 0) return;
-        const props = e.features[0].properties;
-        new maplibregl.Popup()
+        const props = e.features[0].properties as Record<string, string>;
+        new mapboxgl.Popup()
           .setLngLat(e.lngLat)
           .setHTML(
             `<div style="font-size:13px;line-height:1.6">` +
               `<div style="font-weight:600;margin-bottom:4px">Hail Exposure</div>` +
-              `<div>MESH: <strong>${props.threshold}"</strong></div>` +
-              `<div>Product: ${props.product}</div>` +
-              `<div>Window: ${formatTime(props.start_time)} – ${formatTime(props.end_time)}</div>` +
+              `<div>MESH: <strong>${props["threshold"]}"</strong></div>` +
+              `<div>Product: ${props["product"]}</div>` +
+              `<div>Window: ${formatTime(props["start_time"])} – ${formatTime(props["end_time"])}</div>` +
               `</div>`
           )
           .addTo(mapInstance);
@@ -265,9 +285,10 @@ export default function Home() {
 
     // Zoom to fit
     if (geojson.features.length > 0) {
-      const bounds = new maplibregl.LngLatBounds();
+      const bounds = new mapboxgl.LngLatBounds();
       for (const feature of geojson.features) {
-        addCoordsToBounds(feature.geometry.coordinates, bounds);
+        const geom = feature.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+        addCoordsToBounds(geom.coordinates, bounds);
       }
       mapInstance.fitBounds(bounds, {
         padding: { top: 50, bottom: 50, left: 330, right: 50 },
