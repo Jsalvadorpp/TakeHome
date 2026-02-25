@@ -14,7 +14,7 @@ import { reverseGeocode } from "@/lib/geocoding";
 import { fetchSwathsData } from "@/lib/api";
 
 // Set the Mapbox access token before any map is created.
-// The token is stored in the root .env file as NEXT_PUBLIC_MAPBOX_TOKEN.
+// Next.js reads this from web/.env.local (not the project root .env).
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
 
 export default function Home() {

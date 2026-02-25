@@ -219,7 +219,7 @@ python -m background.daily_ingest_job
 ### web/app/page.tsx
 
 **What it does:** The browser-based map viewer. A single React page that:
-1. Creates a MapLibre GL JS map with satellite imagery
+1. Creates a Mapbox GL JS map with satellite imagery
 2. Calls the API to get hail polygon data
 3. Draws the polygons on the map, colored by threshold
 4. Clusters nearby polygons into locations and reverse-geocodes them to city/state names

@@ -155,7 +155,6 @@ The response is a GeoJSON FeatureCollection. The viewer splits it by threshold v
 |------|-------------|
 | **Next.js** | React framework that runs the web app |
 | **TypeScript** | JavaScript with types (catches bugs at build time) |
-| **MapLibre GL JS** | Renders the interactive map (open-source, no API key) |
-| **ESRI World Imagery** | Satellite basemap tiles |
-| **OpenFreeMap** | Vector tiles for city/road labels |
+| **Mapbox GL JS** | Renders the interactive map (requires a Mapbox token) |
+| **Mapbox Satellite Streets** | Satellite imagery with road and label overlays |
 | **Nominatim** | Reverse geocoding for location names (free, no API key) |

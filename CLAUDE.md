@@ -32,7 +32,7 @@ mrms-hail-swaths/
 ├── ingest/       # Fetch MRMS GRIB2 files from public S3
 ├── processing/   # Decode GRIB2 → threshold → polygonize → GeoJSON
 ├── api/          # FastAPI server
-├── web/          # Next.js app with MapLibre GL JS viewer
+├── web/          # Next.js app with Mapbox GL JS viewer
 ├── tests/
 ├── demo.py       # CLI script: generate swaths → dump GeoJSON file
 ├── requirements.txt

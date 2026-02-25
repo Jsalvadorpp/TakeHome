@@ -1,7 +1,7 @@
-# Step 5 — Web Viewer (Next.js + MapLibre GL JS)
+# Step 5 — Web Viewer (Next.js + Mapbox GL JS)
 
 ## Goal
-Build a Next.js application in `web/` that displays hail swath polygons on an interactive map using MapLibre GL JS.
+Build a Next.js application in `web/` that displays hail swath polygons on an interactive map using Mapbox GL JS.
 
 ## Directory
 ```
@@ -22,12 +22,12 @@ web/
 ```bash
 cd web
 npx create-next-app@latest . --typescript --tailwind --app
-npm install maplibre-gl
+npm install mapbox-gl
 ```
 
 ### Map Page (`page.tsx`)
-- Full-screen MapLibre GL JS map
-- Free tile source: CARTO positron (`https://basemaps.cartocdn.com/gl/positron-gl-style/style.json`) or MapLibre demo tiles
+- Full-screen Mapbox GL JS map
+- Tile source: `mapbox://styles/mapbox/satellite-streets-v12` (requires a Mapbox token in `web/.env.local`)
 - On load, fetch `/swaths` from the FastAPI backend for the preselected test event
 - API base URL should be configurable (env var or default to `http://localhost:8000`)
 
@@ -61,7 +61,7 @@ Render each threshold as a separate GeoJSON layer with distinct colors:
 ## Dependencies
 - `next` (via create-next-app)
 - `react`, `react-dom`
-- `maplibre-gl`
+- `mapbox-gl`
 - `typescript`, `tailwindcss` (via create-next-app)
 
 ## Depends On
@@ -78,4 +78,4 @@ Render each threshold as a separate GeoJSON layer with distinct colors:
 ## Notes
 - The FastAPI server must have CORS enabled (handled in Step 4)
 - Keep it simple — single map page, no complex routing or state management
-- MapLibre GL JS is used instead of Mapbox GL JS (open-source, no API key)
+- Mapbox GL JS requires a free Mapbox token stored in `web/.env.local` as `NEXT_PUBLIC_MAPBOX_TOKEN`

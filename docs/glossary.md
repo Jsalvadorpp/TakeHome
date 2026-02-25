@@ -125,9 +125,9 @@ A browser security rule. The API runs on port 8000 and the web viewer runs on po
 
 A Python web framework we use to build the API server. It handles incoming requests (like "give me hail polygons for May 22"), runs the data pipeline, and sends back the results as JSON.
 
-### MapLibre GL JS
+### Mapbox GL JS
 
-A JavaScript library for displaying interactive maps in the browser. It handles the satellite imagery, renders our hail polygons on top, and lets users zoom/pan/click.
+A JavaScript library for displaying interactive maps in the browser. It handles the satellite imagery, renders our hail polygons on top, and lets users zoom/pan/click. Requires a free Mapbox access token.
 
 ### Docker / Docker Compose
 
