@@ -7,7 +7,7 @@ import geojson
 import numpy as np
 from rasterio.features import shapes
 from rasterio.transform import Affine
-from scipy.ndimage import binary_closing
+from scipy.ndimage import binary_closing, gaussian_filter
 from shapely.geometry import mapping, shape
 from shapely.validation import make_valid
 
@@ -26,7 +26,7 @@ def grid_to_swaths(
     source_files: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     simplify_tolerance: float = 0.005,
-    smooth_tolerance: float = 0.03,
+    gaussian_sigma: int = 4,
     min_area_deg2: float = 1e-6,
 ) -> geojson.FeatureCollection:
     """Convert grid data to GeoJSON swath polygons at the given thresholds.
@@ -34,8 +34,9 @@ def grid_to_swaths(
     Each threshold produces its own set of polygon features.
     All geometries are smoothed, validated, and simplified.
 
-    smooth_tolerance controls how much corner-rounding is applied (in degrees).
-    A value of 0.01 (~1 km) rounds blocky raster edges into smooth organic curves.
+    gaussian_sigma controls edge smoothness (in grid cells, each ~1 km).
+    A value of 4 applies ~4 km of smoothing to create organic weather-contour shapes.
+    Higher values = smoother but less precise edges.
     """
     if source_files is None:
         source_files = []
@@ -55,7 +56,7 @@ def grid_to_swaths(
             created_at=created_at,
             bbox=bbox,
             simplify_tolerance=simplify_tolerance,
-            smooth_tolerance=smooth_tolerance,
+            gaussian_sigma=gaussian_sigma,
             min_area_deg2=min_area_deg2,
         )
         all_features.extend(features)
@@ -75,40 +76,42 @@ def _polygonize_threshold(
     created_at: str,
     bbox: tuple[float, float, float, float] | None,
     simplify_tolerance: float,
-    smooth_tolerance: float,
+    gaussian_sigma: int,
     min_area_deg2: float,
 ) -> list[geojson.Feature]:
     """Polygonize a single threshold and return a list of GeoJSON features."""
-    # Step 1: Binary mask
+    # Step 1: Binary mask — which cells are at or above this threshold?
     mask = data >= threshold
     mask = mask & ~np.isnan(data)
 
-    # Step 2: Morphological cleanup (close small gaps within existing swaths)
-    mask = binary_closing(mask, structure=np.ones((2, 2)))
+    # Step 2: Morphological cleanup — fill small gaps inside the swath
+    mask = binary_closing(mask, structure=np.ones((3, 3)))
 
-    # Convert to uint8 for rasterio
-    mask = mask.astype(np.uint8)
+    # Step 3: Gaussian blur for smooth organic contours.
+    # Blurs the binary (0/1) mask, then re-thresholds at 0.5.
+    # This rounds off blocky pixel-grid edges into smooth curves.
+    #
+    # Example: sigma=4 blurs across ~4 grid cells (~4 km).
+    #   Before: jagged staircase edges from the raster grid
+    #   After:  smooth contour lines
+    if gaussian_sigma > 0:
+        blurred = gaussian_filter(mask.astype(np.float32), sigma=gaussian_sigma)
+        mask = (blurred >= 0.5).astype(np.uint8)
+    else:
+        mask = mask.astype(np.uint8)
 
     if mask.sum() == 0:
         return []
 
-    # Step 3: Polygonize
+    # Step 4: Polygonize the smoothed mask into vector shapes
     features = []
     for geom_dict, value in shapes(mask, mask=mask, transform=transform):
         if value == 0:
             continue
 
-        # Step 4: Convert to Shapely and validate
+        # Step 5: Convert to Shapely and validate
         geom = shape(geom_dict)
         geom = make_valid(geom)
-
-        # Step 5: Smooth edges — expand outward then contract by the same amount.
-        # This rounds off the blocky right-angle corners that come from polygonizing
-        # a raster grid. Result: soft, organic curves instead of square edges.
-        # Example: smooth_tolerance=0.01 expands ~1 km, then shrinks back ~1 km.
-        if smooth_tolerance > 0:
-            geom = geom.buffer(smooth_tolerance).buffer(-smooth_tolerance)
-            geom = make_valid(geom)
 
         # Step 6: Simplify to reduce vertex count, then validate again
         if simplify_tolerance > 0:

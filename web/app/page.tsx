@@ -50,9 +50,9 @@ export default function Home() {
   // Remove all swath layers and sources from the map so we can load a new date
   function clearSwathLayers(mapInstance: mapboxgl.Map) {
     for (const t of THRESHOLDS) {
-      const layerId = `swath-${t.value}-fill`;
       const sourceId = `swath-${t.value}`;
-      if (mapInstance.getLayer(layerId)) mapInstance.removeLayer(layerId);
+      if (mapInstance.getLayer(`swath-${t.value}-stroke`)) mapInstance.removeLayer(`swath-${t.value}-stroke`);
+      if (mapInstance.getLayer(`swath-${t.value}-fill`)) mapInstance.removeLayer(`swath-${t.value}-fill`);
       if (mapInstance.getSource(sourceId)) mapInstance.removeSource(sourceId);
     }
   }
@@ -84,15 +84,18 @@ export default function Home() {
   function toggleThreshold(value: number) {
     const map = mapRef.current;
     if (!map) return;
-    const layerId = `swath-${value}-fill`;
-    if (!map.getLayer(layerId)) return;
+    const fillId = `swath-${value}-fill`;
+    const strokeId = `swath-${value}-stroke`;
+    if (!map.getLayer(fillId)) return;
     const newHidden = new Set(hiddenThresholds);
     if (newHidden.has(value)) {
       newHidden.delete(value);
-      map.setLayoutProperty(layerId, "visibility", "visible");
+      map.setLayoutProperty(fillId, "visibility", "visible");
+      if (map.getLayer(strokeId)) map.setLayoutProperty(strokeId, "visibility", "visible");
     } else {
       newHidden.add(value);
-      map.setLayoutProperty(layerId, "visibility", "none");
+      map.setLayoutProperty(fillId, "visibility", "none");
+      if (map.getLayer(strokeId)) map.setLayoutProperty(strokeId, "visibility", "none");
     }
     setHiddenThresholds(newHidden);
   }
@@ -244,6 +247,8 @@ export default function Home() {
 
       // Insert before "road-label" so swaths appear under road text but above satellite
       const beforeId = mapInstance.getLayer("road-label") ? "road-label" : undefined;
+
+      // Fill layer — semi-transparent colored polygon
       mapInstance.addLayer(
         {
           id: `${layerId}-fill`,
@@ -252,6 +257,21 @@ export default function Home() {
           paint: {
             "fill-color": threshold.color,
             "fill-opacity": opacity,
+          },
+        },
+        beforeId
+      );
+
+      // Stroke layer — darker outline so polygon shapes are clearly visible
+      mapInstance.addLayer(
+        {
+          id: `${layerId}-stroke`,
+          type: "line",
+          source: layerId,
+          paint: {
+            "line-color": threshold.strokeColor,
+            "line-width": 1.5,
+            "line-opacity": 0.85,
           },
         },
         beforeId
