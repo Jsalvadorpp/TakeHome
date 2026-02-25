@@ -99,11 +99,15 @@ class Transformer:
         # Step 1: Validate the date string. Raises ValueError if format is wrong.
         valid_date = _parse_date(date_str)
 
-        # Build UTC timestamps for the full calendar day.
-        # start_of_day = 2024-05-22 00:00:00 UTC
-        # end_of_day   = 2024-05-23 00:00:00 UTC  (exclusive end = 24h window)
-        start_of_day = datetime(valid_date.year, valid_date.month, valid_date.day, tzinfo=timezone.utc)
-        end_of_day = start_of_day + timedelta(days=1)
+        # Build UTC timestamps for the 24-hour window starting at noon on the given date.
+        # Example for "2024-05-22":
+        #   start = 2024-05-22 12:00:00 UTC
+        #   end   = 2024-05-23 12:00:00 UTC  (exactly 24 hours later)
+        # Using noon-to-noon instead of midnight-to-midnight captures storm data that
+        # spans across a calendar-day boundary (storms that start in the afternoon and
+        # continue into the next morning are kept together in one window).
+        start_of_day = datetime(valid_date.year, valid_date.month, valid_date.day, 12, 0, 0, tzinfo=timezone.utc)
+        end_of_day = start_of_day + timedelta(hours=24)
 
         start_time_iso = start_of_day.isoformat()
         end_time_iso = end_of_day.isoformat()

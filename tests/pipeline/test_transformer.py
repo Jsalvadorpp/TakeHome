@@ -310,8 +310,8 @@ def test_grid_to_swaths_called_with_all_thresholds_and_no_bbox():
         _stop_patches(started)
 
 
-def test_time_range_covers_full_calendar_day():
-    """The start_time and end_time passed to grid_to_swaths should span the full 24-hour day."""
+def test_time_range_is_noon_to_noon_utc():
+    """The window should start at noon UTC on the given date and end at noon UTC the next day."""
     patches = _make_patches()
     started = _apply_patches(patches)
 
@@ -321,9 +321,9 @@ def test_time_range_covers_full_calendar_day():
         _, swaths_mock = started["pipeline.transformer.grid_to_swaths"]
         call_kwargs = swaths_mock.call_args.kwargs
 
-        # start_time should be midnight UTC for the requested date
-        assert "2024-05-22T00:00:00" in call_kwargs["start_time"]
-        # end_time should be midnight UTC of the next day (full 24-hour window)
-        assert "2024-05-23T00:00:00" in call_kwargs["end_time"]
+        # start_time should be noon UTC on the requested date
+        assert "2024-05-22T12:00:00" in call_kwargs["start_time"]
+        # end_time should be noon UTC the next day (exactly 24 hours later)
+        assert "2024-05-23T12:00:00" in call_kwargs["end_time"]
     finally:
         _stop_patches(started)

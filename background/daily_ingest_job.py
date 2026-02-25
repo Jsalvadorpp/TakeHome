@@ -22,7 +22,7 @@ import logging
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 # Add the project root to sys.path so that imports like
 # "from pipeline.transformer import Transformer" work when this script
@@ -37,6 +37,26 @@ logger = logging.getLogger(__name__)
 
 # How long to sleep between runs (24 hours expressed in seconds).
 INTERVAL_SECONDS = 24 * 60 * 60
+
+
+def _seconds_until_noon_utc() -> float:
+    """Return how many seconds remain until 12:00 UTC today.
+
+    Returns 0 if it is already past noon UTC — no waiting needed.
+
+    The noon-to-noon window for "yesterday" closes at 12:00 UTC today, so the
+    daily job should not run before that point or it risks processing an
+    incomplete window.
+
+    Example:
+        At 10:00 UTC → returns 7200.0  (2 hours to wait)
+        At 13:00 UTC → returns 0.0     (already past noon, run immediately)
+    """
+    now = datetime.now(timezone.utc)
+    noon_today = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    if now >= noon_today:
+        return 0.0
+    return (noon_today - now).total_seconds()
 
 
 class DailyIngestJob:
@@ -111,12 +131,19 @@ class DailyIngestJob:
             job = DailyIngestJob()
             job.start()  # blocks forever — Ctrl+C or SIGTERM to stop
         """
-        logger.info(
-            "Daily ingest job started. Will run every %d hours.",
-            INTERVAL_SECONDS // 3600,
-        )
+        logger.info("Daily ingest job started. Runs at or after 12:00 UTC each day.")
 
         while True:
+            # The noon-to-noon window for "yesterday" closes at 12:00 UTC today.
+            # If the job starts before noon UTC, wait until noon before running.
+            wait_seconds = _seconds_until_noon_utc()
+            if wait_seconds > 0:
+                logger.info(
+                    "Waiting %.0f minutes until 12:00 UTC before running...",
+                    wait_seconds / 60,
+                )
+                time.sleep(wait_seconds)
+
             try:
                 self.run_once()
             except Exception as e:
@@ -124,10 +151,7 @@ class DailyIngestJob:
                 # A single bad day should not stop tomorrow's run.
                 logger.error("Daily ingest run failed: %s", e)
 
-            logger.info(
-                "Next run in %d hours. Sleeping...",
-                INTERVAL_SECONDS // 3600,
-            )
+            logger.info("Next run in 24 hours. Sleeping...")
             time.sleep(INTERVAL_SECONDS)
 
 

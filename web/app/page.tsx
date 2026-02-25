@@ -29,11 +29,16 @@ export default function Home() {
   const [locationNames, setLocationNames] = useState<Record<number, string>>({});
   const [selectedDate, setSelectedDate] = useState("2024-05-22");
 
-  // Convert a date string (YYYY-MM-DD) to the start/end times the API expects
+  // Convert a date string (YYYY-MM-DD) to the start/end times the API expects.
+  // Window: noon UTC on the selected date → noon UTC the next day (24 hours).
+  // This matches the NOAA "Hail Swath 24hr" product, which captures overnight
+  // storms that cross midnight UTC (common for Southern Plains events).
   function dateToWindow(date: string) {
+    const start = new Date(`${date}T12:00:00Z`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000); // +24 hours
     return {
-      start: `${date}T00:00:00Z`,
-      end: `${date}T23:59:59Z`,
+      start: start.toISOString(),
+      end: end.toISOString(),
     };
   }
 
