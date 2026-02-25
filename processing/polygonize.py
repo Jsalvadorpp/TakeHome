@@ -26,12 +26,16 @@ def grid_to_swaths(
     source_files: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     simplify_tolerance: float = 0.005,
+    smooth_tolerance: float = 0.03,
     min_area_deg2: float = 1e-6,
 ) -> geojson.FeatureCollection:
     """Convert grid data to GeoJSON swath polygons at the given thresholds.
 
     Each threshold produces its own set of polygon features.
-    All geometries are validated and simplified.
+    All geometries are smoothed, validated, and simplified.
+
+    smooth_tolerance controls how much corner-rounding is applied (in degrees).
+    A value of 0.01 (~1 km) rounds blocky raster edges into smooth organic curves.
     """
     if source_files is None:
         source_files = []
@@ -51,6 +55,7 @@ def grid_to_swaths(
             created_at=created_at,
             bbox=bbox,
             simplify_tolerance=simplify_tolerance,
+            smooth_tolerance=smooth_tolerance,
             min_area_deg2=min_area_deg2,
         )
         all_features.extend(features)
@@ -70,6 +75,7 @@ def _polygonize_threshold(
     created_at: str,
     bbox: tuple[float, float, float, float] | None,
     simplify_tolerance: float,
+    smooth_tolerance: float,
     min_area_deg2: float,
 ) -> list[geojson.Feature]:
     """Polygonize a single threshold and return a list of GeoJSON features."""
@@ -96,16 +102,24 @@ def _polygonize_threshold(
         geom = shape(geom_dict)
         geom = make_valid(geom)
 
-        # Step 5: Simplify and validate again
+        # Step 5: Smooth edges — expand outward then contract by the same amount.
+        # This rounds off the blocky right-angle corners that come from polygonizing
+        # a raster grid. Result: soft, organic curves instead of square edges.
+        # Example: smooth_tolerance=0.01 expands ~1 km, then shrinks back ~1 km.
+        if smooth_tolerance > 0:
+            geom = geom.buffer(smooth_tolerance).buffer(-smooth_tolerance)
+            geom = make_valid(geom)
+
+        # Step 6: Simplify to reduce vertex count, then validate again
         if simplify_tolerance > 0:
             geom = geom.simplify(simplify_tolerance, preserve_topology=True)
             geom = make_valid(geom)
 
-        # Step 6: Drop tiny polygons
+        # Step 7: Drop tiny polygons
         if geom.area < min_area_deg2:
             continue
 
-        # Step 7: Clip to bbox if provided
+        # Step 8: Clip to bbox if provided
         if bbox is not None:
             min_lon, min_lat, max_lon, max_lat = bbox
             geom = geom.intersection(
@@ -127,7 +141,7 @@ def _polygonize_threshold(
             if geom.is_empty:
                 continue
 
-        # Step 8: Build the GeoJSON feature with required properties
+        # Step 9: Build the GeoJSON feature with required properties
         feature = geojson.Feature(
             geometry=mapping(geom),
             properties={

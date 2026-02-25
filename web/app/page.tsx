@@ -223,7 +223,9 @@ export default function Home() {
   }
 
   function addLayers(mapInstance: mapboxgl.Map, geojson: GeoJSON.FeatureCollection) {
-    for (const threshold of THRESHOLDS) {
+    // Add lowest thresholds first so higher thresholds render on top and stay visible.
+    // THRESHOLDS is ordered high→low, so we reverse to add 0.50" first, 2.00" last.
+    for (const threshold of [...THRESHOLDS].reverse()) {
       const layerId = `swath-${threshold.value}`;
 
       const filtered: GeoJSON.FeatureCollection = {
