@@ -88,15 +88,20 @@ def _polygonize_threshold(
     mask = binary_closing(mask, structure=np.ones((3, 3)))
 
     # Step 3: Gaussian blur for smooth organic contours.
-    # Blurs the binary (0/1) mask, then re-thresholds at 0.5.
-    # This rounds off blocky pixel-grid edges into smooth curves.
+    # Blurs the binary (0/1) mask, then re-thresholds at 0.5 to get smooth edges.
+    # We then take the UNION with the original binary mask so that small isolated
+    # clusters (narrower than ~2*sigma pixels) are never erased — the Gaussian blur
+    # alone would reduce their peak below 0.5 and wipe them out entirely.
     #
     # Example: sigma=4 blurs across ~4 grid cells (~4 km).
-    #   Before: jagged staircase edges from the raster grid
-    #   After:  smooth contour lines
+    #   Large clusters:  smooth organic contour edges (from Gaussian)
+    #   Small clusters:  preserved as-is from the original mask (no data loss)
     if gaussian_sigma > 0:
+        original_mask = mask.copy()
         blurred = gaussian_filter(mask.astype(np.float32), sigma=gaussian_sigma)
-        mask = (blurred >= 0.5).astype(np.uint8)
+        smooth_mask = blurred >= 0.5
+        # Union: keep every pixel from the smooth result AND the original mask
+        mask = (smooth_mask | original_mask).astype(np.uint8)
     else:
         mask = mask.astype(np.uint8)
 
