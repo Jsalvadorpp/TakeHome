@@ -90,7 +90,7 @@ def _polygonize_threshold(
     # Step 3: Gaussian blur for smooth organic contours.
     # Blurs the binary (0/1) mask, then re-thresholds at 0.1.
     # Using 0.1 lets very small clusters survive — even a cluster of just 2–3
-    # pixels can have its blurred peak reach 0.1 after sigma=4 smoothing.
+    # pixels can have its blurred peak reach 0.1 after sigma=2 smoothing.
     # This ensures no real hail area is lost while edges remain smooth.
     #
     # Example: sigma=2 blurs across ~2 grid cells (~2 km).
