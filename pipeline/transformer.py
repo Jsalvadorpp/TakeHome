@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Standard hail thresholds used across the system (in inches).
 # These match THRESHOLDS_INCHES in processing/polygonize.py.
-# 0.75" is the minimum reportable hail size; 2.00" is baseball-sized hail.
+# 0.50" is the minimum; 2.75" is well above baseball-sized hail.
 DEFAULT_THRESHOLDS = THRESHOLDS_INCHES
 
 

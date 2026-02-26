@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--output", default="swaths.geojson", help="Output file path")
     parser.add_argument(
         "--thresholds",
-        default="0.50,0.75,1.00,1.50,2.00",
+        default="0.50,0.75,1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75",
         help="Comma-separated thresholds in inches",
     )
     parser.add_argument(

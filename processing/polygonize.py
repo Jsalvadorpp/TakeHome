@@ -13,7 +13,7 @@ from shapely.validation import make_valid
 
 logger = logging.getLogger(__name__)
 
-THRESHOLDS_INCHES = [0.50, 0.75, 1.00, 1.50, 2.00]
+THRESHOLDS_INCHES = [0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00, 2.25, 2.50, 2.75]
 
 
 def grid_to_swaths(
@@ -25,8 +25,8 @@ def grid_to_swaths(
     end_time: str = "",
     source_files: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
-    simplify_tolerance: float = 0.005,
-    gaussian_sigma: int = 2,
+    simplify_tolerance: float = 0.01,
+    gaussian_sigma: int = 3,
     min_area_deg2: float = 1e-6,
 ) -> geojson.FeatureCollection:
     """Convert grid data to GeoJSON swath polygons at the given thresholds.
@@ -35,7 +35,7 @@ def grid_to_swaths(
     All geometries are smoothed, validated, and simplified.
 
     gaussian_sigma controls edge smoothness (in grid cells, each ~1 km).
-    A value of 2 smooths pixel-level staircase noise without rounding the overall shape.
+    A value of 3 smooths edges and merges closely spaced pixels into compact blobs.
     Higher values = smoother but risk converting elongated storm tracks into circular blobs.
     """
     if source_files is None:
@@ -84,17 +84,19 @@ def _polygonize_threshold(
     mask = data >= threshold
     mask = mask & ~np.isnan(data)
 
-    # Step 2: Morphological cleanup — fill small gaps inside the swath
-    mask = binary_closing(mask, structure=np.ones((3, 3)))
+    # Step 2: Morphological cleanup — fill small gaps inside the swath.
+    # A 5×5 structure fills larger gaps between nearby cells, merging
+    # scattered pixels into solid blobs (similar to HailTrace's style).
+    mask = binary_closing(mask, structure=np.ones((5, 5)))
 
     # Step 3: Gaussian blur for smooth organic contours.
     # Blurs the binary (0/1) mask, then re-thresholds at 0.1.
     # Using 0.1 lets very small clusters survive — even a cluster of just 2–3
-    # pixels can have its blurred peak reach 0.1 after sigma=2 smoothing.
+    # pixels can have its blurred peak reach 0.1 after sigma=3 smoothing.
     # This ensures no real hail area is lost while edges remain smooth.
     #
-    # Example: sigma=2 blurs across ~2 grid cells (~2 km).
-    #   Large clusters:  smooth organic contour edges
+    # Example: sigma=3 blurs across ~3 grid cells (~3 km).
+    #   Large clusters:  smooth rounded contour edges
     #   Small clusters:  preserved as long as they are ~2+ pixels wide (~2 km)
     if gaussian_sigma > 0:
         blurred = gaussian_filter(mask.astype(np.float32), sigma=gaussian_sigma)
@@ -117,8 +119,9 @@ def _polygonize_threshold(
 
         # Step 6: Buffer round-trip to eliminate raster staircase edges.
         # Expand then contract by the same amount — sharp pixel-grid corners
-        # become smooth arcs. 0.04° ≈ 4 km, enough to round 0.01° raster steps.
-        geom = geom.buffer(0.04).buffer(-0.04)
+        # become smooth arcs. 0.08° ≈ 8 km produces rounder, more organic
+        # blob shapes similar to HailTrace's style.
+        geom = geom.buffer(0.08).buffer(-0.08)
         geom = make_valid(geom)
 
         # Step 7: Simplify to reduce vertex count, then validate again
