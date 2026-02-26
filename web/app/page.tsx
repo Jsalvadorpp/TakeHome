@@ -107,7 +107,7 @@ export default function Home() {
     for (const t of THRESHOLDS) {
       const layerId = `swath-${t.value}-fill`;
       if (map.getLayer(layerId)) {
-        map.setPaintProperty(layerId, "fill-opacity", newOpacity);
+        map.setPaintProperty(layerId, "fill-opacity", t.opacity * newOpacity);
       }
     }
   }
@@ -256,7 +256,7 @@ export default function Home() {
           source: layerId,
           paint: {
             "fill-color": threshold.color,
-            "fill-opacity": opacity,
+            "fill-opacity": threshold.opacity * opacity,
           },
         },
         beforeId
@@ -270,8 +270,8 @@ export default function Home() {
           source: layerId,
           paint: {
             "line-color": threshold.strokeColor,
-            "line-width": 1.5,
-            "line-opacity": 0.85,
+            "line-width": 0.8,
+            "line-opacity": 0.4,
           },
         },
         beforeId

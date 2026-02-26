@@ -12,10 +12,10 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:800
 // Colors follow the standard warm weather-radar ramp: cream → yellow → amber → orange → red.
 // strokeColor is a darker version of color used to outline polygon edges.
 export const THRESHOLDS = [
-  { value: 2.0,  color: "#CC1800", strokeColor: "#880e00", label: '2.00"', opacity: 0.75 },
-  { value: 1.5,  color: "#FF5500", strokeColor: "#c03500", label: '1.50"', opacity: 0.65 },
-  { value: 1.0,  color: "#FFA500", strokeColor: "#c07000", label: '1.00"', opacity: 0.55 },
-  { value: 0.75, color: "#FFE04B", strokeColor: "#c0a000", label: '0.75"', opacity: 0.45 },
+  { value: 2.0,  color: "#CC1800", strokeColor: "#880e00", label: '2.00"', opacity: 0.95 },
+  { value: 1.5,  color: "#FF5500", strokeColor: "#c03500", label: '1.50"', opacity: 0.80 },
+  { value: 1.0,  color: "#FFA500", strokeColor: "#c07000", label: '1.00"', opacity: 0.65 },
+  { value: 0.75, color: "#FFE04B", strokeColor: "#c0a000", label: '0.75"', opacity: 0.50 },
   { value: 0.50, color: "#FFFACD", strokeColor: "#c8b860", label: '0.50"', opacity: 0.35 },
 ];
 

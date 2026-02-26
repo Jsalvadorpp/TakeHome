@@ -26,7 +26,7 @@ def grid_to_swaths(
     source_files: list[str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     simplify_tolerance: float = 0.005,
-    gaussian_sigma: int = 4,
+    gaussian_sigma: int = 2,
     min_area_deg2: float = 1e-6,
 ) -> geojson.FeatureCollection:
     """Convert grid data to GeoJSON swath polygons at the given thresholds.
@@ -35,8 +35,8 @@ def grid_to_swaths(
     All geometries are smoothed, validated, and simplified.
 
     gaussian_sigma controls edge smoothness (in grid cells, each ~1 km).
-    A value of 4 applies ~4 km of smoothing to create organic weather-contour shapes.
-    Higher values = smoother but less precise edges.
+    A value of 2 smooths pixel-level staircase noise without rounding the overall shape.
+    Higher values = smoother but risk converting elongated storm tracks into circular blobs.
     """
     if source_files is None:
         source_files = []
@@ -88,20 +88,17 @@ def _polygonize_threshold(
     mask = binary_closing(mask, structure=np.ones((3, 3)))
 
     # Step 3: Gaussian blur for smooth organic contours.
-    # Blurs the binary (0/1) mask, then re-thresholds at 0.5 to get smooth edges.
-    # We then take the UNION with the original binary mask so that small isolated
-    # clusters (narrower than ~2*sigma pixels) are never erased — the Gaussian blur
-    # alone would reduce their peak below 0.5 and wipe them out entirely.
+    # Blurs the binary (0/1) mask, then re-thresholds at 0.1.
+    # Using 0.1 lets very small clusters survive — even a cluster of just 2–3
+    # pixels can have its blurred peak reach 0.1 after sigma=4 smoothing.
+    # This ensures no real hail area is lost while edges remain smooth.
     #
-    # Example: sigma=4 blurs across ~4 grid cells (~4 km).
-    #   Large clusters:  smooth organic contour edges (from Gaussian)
-    #   Small clusters:  preserved as-is from the original mask (no data loss)
+    # Example: sigma=2 blurs across ~2 grid cells (~2 km).
+    #   Large clusters:  smooth organic contour edges
+    #   Small clusters:  preserved as long as they are ~2+ pixels wide (~2 km)
     if gaussian_sigma > 0:
-        original_mask = mask.copy()
         blurred = gaussian_filter(mask.astype(np.float32), sigma=gaussian_sigma)
-        smooth_mask = blurred >= 0.5
-        # Union: keep every pixel from the smooth result AND the original mask
-        mask = (smooth_mask | original_mask).astype(np.uint8)
+        mask = (blurred >= 0.1).astype(np.uint8)
     else:
         mask = mask.astype(np.uint8)
 
@@ -118,16 +115,22 @@ def _polygonize_threshold(
         geom = shape(geom_dict)
         geom = make_valid(geom)
 
-        # Step 6: Simplify to reduce vertex count, then validate again
+        # Step 6: Buffer round-trip to eliminate raster staircase edges.
+        # Expand then contract by the same amount — sharp pixel-grid corners
+        # become smooth arcs. 0.04° ≈ 4 km, enough to round 0.01° raster steps.
+        geom = geom.buffer(0.04).buffer(-0.04)
+        geom = make_valid(geom)
+
+        # Step 7: Simplify to reduce vertex count, then validate again
         if simplify_tolerance > 0:
             geom = geom.simplify(simplify_tolerance, preserve_topology=True)
             geom = make_valid(geom)
 
-        # Step 7: Drop tiny polygons
+        # Step 8: Drop tiny polygons
         if geom.area < min_area_deg2:
             continue
 
-        # Step 8: Clip to bbox if provided
+        # Step 9: Clip to bbox if provided
         if bbox is not None:
             min_lon, min_lat, max_lon, max_lat = bbox
             geom = geom.intersection(
@@ -149,7 +152,7 @@ def _polygonize_threshold(
             if geom.is_empty:
                 continue
 
-        # Step 9: Build the GeoJSON feature with required properties
+        # Step 10: Build the GeoJSON feature with required properties
         feature = geojson.Feature(
             geometry=mapping(geom),
             properties={
