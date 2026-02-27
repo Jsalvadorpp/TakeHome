@@ -59,7 +59,7 @@ Work through these in order. Each step's feature file has the full spec, depende
 
 - Python 3.11+, no paid services, no API keys
 - All coordinates in WGS84 (EPSG:4326), GeoJSON lon/lat order
-- Hail size thresholds: `0.75", 1.00", 1.50", 2.00"` (0.75" is both the minimum cutoff and lowest threshold)
+- Hail size thresholds: `0.50", 0.75", 1.00", 1.25", 1.50", 1.75", 2.00", 2.25", 2.50", 2.75"` (10 thresholds in 0.25" increments)
 - Feature properties MUST include: `threshold`, `product`, `start_time`, `end_time`, `source_files`, `created_at`
 - Handle missing files gracefully — log a warning, never crash
 - No proprietary vendor data. Clean-room implementation using only public NOAA MRMS.

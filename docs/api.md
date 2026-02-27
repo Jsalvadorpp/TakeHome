@@ -48,7 +48,7 @@ Nothing else to it. If you get this response, the server is running.
 **Optional parameters:**
 | Parameter | Default | What it means |
 |-----------|---------|---------------|
-| `thresholds` | `0.50,0.75,1.00,1.50,2.00` | Which hail sizes to generate polygons for (comma-separated, in inches) |
+| `thresholds` | `0.50,0.75,1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75` | Which hail sizes to generate polygons for (comma-separated, in inches) |
 | `bbox` | *(none — full CONUS)* | Only return polygons within this rectangle: `minLon,minLat,maxLon,maxLat` |
 | `simplify` | `0.005` | How much to smooth polygon edges (higher = smoother but less accurate) |
 

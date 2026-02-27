@@ -257,7 +257,7 @@ curl "http://localhost:8000/swaths?start_time=2024-05-22T20:00:00Z&end_time=2024
 Returns a GeoJSON FeatureCollection with polygons for each hail size threshold.
 
 **Optional parameters:**
-- `thresholds` — comma-separated inches (default: `0.75,1.00,1.50,2.00`)
+- `thresholds` — comma-separated inches (default: `0.50,0.75,1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75`)
 - `bbox` — bounding box as `minLon,minLat,maxLon,maxLat`
 - `simplify` — geometry simplification tolerance (default: `0.005`)
 
@@ -283,7 +283,7 @@ python demo.py --start 2024-05-22T20:00:00Z --end 2024-05-22T22:00:00Z --output 
 - `--start` — start time (required)
 - `--end` — end time (required)
 - `--output` — output file path (default: `swaths.geojson`)
-- `--thresholds` — comma-separated inches (default: `0.75,1.00,1.50,2.00`)
+- `--thresholds` — comma-separated inches (default: `0.50,0.75,1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75`)
 - `--bbox` — bounding box as `minLon,minLat,maxLon,maxLat`
 
 ---

@@ -98,32 +98,35 @@ The output looks like:
 
 **Code:** `processing/polygonize.py` → `grid_to_swaths()`
 
-This is the most complex step. For each threshold (0.75", 1.00", 1.50", 2.00"), we:
+This is the most complex step. For each of the 10 thresholds (0.50" through 2.75" in 0.25" steps), we:
 
-### 4a. Create a Binary Mask
+### 4a. Gaussian Blur on Float Values
 
-Ask "is this cell's value >= the threshold?" for every cell. Result: a grid of true/false.
+Before thresholding, we apply a Gaussian blur (sigma=3, ~3 km radius) to the continuous MESH values. This creates a smooth gradient at storm edges so the resulting polygon boundaries follow organic curves instead of pixel-grid staircases.
+
+The key insight: we blur the **float values first**, then threshold — not the other way around. Blurring a binary mask inflates boundaries by many kilometers, but blurring the raw values only shifts the contour by ~1-2 km.
+
+### 4b. Create a Binary Mask
+
+Ask "is this cell's smoothed value >= the threshold?" for every cell. Result: a grid of true/false.
 
 ```
-Hail grid:     [0.0, 1.2, 0.8, 2.1, 0.3]
-Threshold 1.0: [ no, YES, no,  YES, no ]
+Smoothed hail grid: [0.0, 0.9, 1.1, 2.1, 0.3]
+Threshold 1.0:      [ no,  no, YES, YES,  no ]
 ```
-
-### 4b. Clean Up Noise
-
-The binary mask might have tiny isolated "yes" dots (radar noise) or small gaps in otherwise solid areas. We apply morphological cleanup:
-- **Closing** fills small holes (a "no" surrounded by "yes" becomes "yes")
-- **Opening** removes tiny specks (an isolated "yes" surrounded by "no" is removed)
 
 ### 4c. Trace the Outlines
 
 We use the `rasterio.features.shapes()` function to trace around the "yes" areas and create polygon shapes. This is like using the "magic wand" tool in Photoshop — it finds the boundaries of connected regions.
 
-### 4d. Validate and Simplify
+### 4d. Buffer Round-Trip
 
-The raw polygon edges follow the grid exactly, making them very jagged (staircase pattern). We:
+The polygon edges still follow the pixel grid (staircase pattern). We expand the polygon by 0.02° (~2 km) then shrink it back by the same amount. This rounds every pixel-corner into a smooth arc without changing the overall boundary size.
+
+### 4e. Validate and Simplify
+
 1. Run `make_valid()` to fix any broken geometry
-2. Simplify the edges (smooth out the staircase)
+2. Simplify the edges (tolerance 0.005° ≈ 500 m) to reduce vertex count while keeping curves smooth
 3. Run `make_valid()` again (simplification can sometimes break geometry)
 4. Remove tiny polygons that are too small to matter
 
@@ -153,10 +156,9 @@ The final result is a GeoJSON FeatureCollection containing all the polygons for 
 
 For our test event (May 22, 2024, full day), the polygon counts at each threshold are roughly:
 
-- Many polygons for >= 0.75" (small hail — largest area)
-- Fewer for >= 1.00"
-- Fewer still for >= 1.50"
-- The fewest for >= 2.00" (severe hail — smallest area)
+- Many polygons for >= 0.50" (smallest hail — largest area)
+- Progressively fewer for each higher threshold
+- The fewest for >= 2.75" (extreme hail — smallest area)
 
 The higher the threshold, the fewer and smaller the polygons — which makes sense, because less area gets hit by very large hail.
 
@@ -224,8 +226,8 @@ NOAA S3 Bucket
        ▼
 ┌──────────────┐
 │  Polygonize  │  grid_to_swaths()
-│  per         │  mask → cleanup → trace → simplify
-│  threshold   │  (all 5 thresholds, full CONUS, no bbox clip)
+│  per         │  blur → mask → trace → buffer → simplify
+│  threshold   │  (all 10 thresholds, full CONUS, no bbox clip)
 └──────┬───────┘
        │  GeoJSON FeatureCollection
        ▼

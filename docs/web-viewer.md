@@ -113,16 +113,22 @@ A reminder that this data is from NOAA MRMS and represents radar estimates, not 
 
 ## Polygon Colors
 
-Each threshold has its own color so you can tell them apart on the map:
+Each threshold has its own color so you can tell them apart on the map. The palette uses two zones: a warm ramp for smaller hail (cream → yellow → orange → red) and a dark red family for severe hail (2.00"+).
 
 | Threshold | Color | Hex |
 |-----------|-------|-----|
-| >= 0.75" | Yellow-green | `#9E9D24` |
-| >= 1.00" | Amber | `#F9A825` |
-| >= 1.50" | Deep orange | `#E65100` |
-| >= 2.00" | Dark red | `#BF360C` |
+| >= 0.50" | Light cream | `#FFFACD` |
+| >= 0.75" | Yellow | `#FFE04B` |
+| >= 1.00" | Orange | `#FFA500` |
+| >= 1.25" | Deep orange | `#FF7A00` |
+| >= 1.50" | Red-orange | `#FF5500` |
+| >= 1.75" | Bright red | `#FF2200` |
+| >= 2.00" | Red | `#E83A1A` |
+| >= 2.25" | Dark red | `#CC1800` |
+| >= 2.50" | Deeper red | `#A81300` |
+| >= 2.75" | Maroon | `#841000` |
 
-Larger thresholds are drawn first (bottom), smaller thresholds on top. This means if a 2.00" area is inside a 0.75" area, you'll see the red poking through the yellow-green.
+Larger thresholds are drawn first (bottom), smaller thresholds on top. This means if a 2.75" area is inside a 0.50" area, you'll see the maroon poking through the cream.
 
 ---
 
